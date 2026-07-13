@@ -22,7 +22,8 @@ object Uploader {
     fun upload(
         provider: UploadProvider,
         fileBytes: ByteArray,
-        mimeType: String
+        mimeType: String,
+        secretUrl: Boolean = false
     ): String {
         // Determine extension
         val extension = when (mimeType) {
@@ -36,10 +37,15 @@ object Uploader {
         val mediaType = mimeType.toMediaTypeOrNull()
         val filePart = fileBytes.toRequestBody(mediaType)
 
-        val requestBody = MultipartBody.Builder()
+        val requestBodyBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(provider.fileParam, filename, filePart)
-            .build()
+
+        if (secretUrl) {
+            requestBodyBuilder.addFormDataPart("secret", "1")
+        }
+
+        val requestBody = requestBodyBuilder.build()
 
         val requestBuilder = Request.Builder()
             .url(provider.targetUrl)

@@ -8,7 +8,60 @@ import androidx.core.graphics.scale
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
+import androidx.exifinterface.media.ExifInterface
+import java.io.File
+
 object ImageProcessor {
+
+    /**
+     * Strips EXIF metadata from JPEG or PNG byte arrays using the well-known
+     * AndroidX ExifInterface library. Retains layout/rendering-essential tags
+     * like orientation and dimensions, but clears all privacy-sensitive fields.
+     */
+    fun stripMetadata(context: Context, bytes: ByteArray, mimeType: String): ByteArray {
+        if (mimeType != "image/jpeg" && mimeType != "image/png" && mimeType != "image/webp") {
+            return bytes
+        }
+        val tempFile = File.createTempFile("uploid_strip", null, context.cacheDir)
+        return try {
+            tempFile.writeBytes(bytes)
+            val exifInterface = ExifInterface(tempFile.absolutePath)
+
+            // Collect all TAG_ fields via reflection to strip them systematically
+            val fields = ExifInterface::class.java.fields
+            for (field in fields) {
+                if (field.name.startsWith("TAG_") && field.type == String::class.java) {
+                    try {
+                        val tagName = field.get(null) as? String
+                        if (tagName != null) {
+                            // Retain orientation and dimensions to prevent layout/display issues
+                            if (tagName != ExifInterface.TAG_IMAGE_WIDTH &&
+                                tagName != ExifInterface.TAG_IMAGE_LENGTH &&
+                                tagName != ExifInterface.TAG_ORIENTATION &&
+                                tagName != ExifInterface.TAG_PIXEL_X_DIMENSION &&
+                                tagName != ExifInterface.TAG_PIXEL_Y_DIMENSION) {
+                                exifInterface.setAttribute(tagName, null)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Ignore reflection/unsupported operations
+                    }
+                }
+            }
+            // Explicitly ensure GPS attributes are removed
+            exifInterface.setAttribute(ExifInterface.TAG_GPS_LATITUDE, null)
+            exifInterface.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, null)
+            exifInterface.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, null)
+
+            exifInterface.saveAttributes()
+            tempFile.readBytes()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            bytes
+        } finally {
+            tempFile.delete()
+        }
+    }
 
     /**
      * Slider positions:
