@@ -1,0 +1,92 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Background squircle with a premium violet-to-blue gradient -->
+    <path
+        android:pathData="M 0,24 A 24,24 0 0 1 24,0 H 76 A 24,24 0 0 1 100,24 V 76 A 24,24 0 0 1 76,100 H 24 A 24,24 0 0 1 0,76 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="100"
+                android:endY="100"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF7C3AED"/>
+                <item android:offset="1" android:color="#FF2563EB"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Image Outline (rounded card/frame) -->
+    <path
+        android:pathData="M 22,36 h 56 a 6,6 0 0 1 6,6 v 32 a 6,6 0 0 1 -6,6 h -56 a 6,6 0 0 1 -6,-6 v -32 a 6,6 0 0 1 6,-6 Z"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Left Mountain -->
+    <path
+        android:pathData="M 19.5,76 L 38,56 L 54,71"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Right Mountain -->
+    <path
+        android:pathData="M 46,76 L 62,59 L 80.5,76"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Sun/Moon circle -->
+    <path
+        android:pathData="M 72,48 A 4.5,4.5 0 1,1 71.99,48 Z"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Arrow Cutout/Halo (drawn in deep background-toned stroke to create space/shadow) -->
+    <path
+        android:pathData="M 36,36 L 50,22 L 64,36"
+        android:strokeWidth="12"
+        android:strokeColor="#FF1E1B4B"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:pathData="M 50,22 L 50,58"
+        android:strokeWidth="12"
+        android:strokeColor="#FF1E1B4B"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"/>
+
+    <!-- Foreground White Arrow Head -->
+    <path
+        android:pathData="M 36,36 L 50,22 L 64,36"
+        android:strokeWidth="6"
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+
+    <!-- Foreground White Arrow Shaft -->
+    <path
+        android:pathData="M 50,22 L 50,58"
+        android:strokeWidth="6"
+        android:strokeColor="#FFFFFFFF"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"/>
+
+</vector>

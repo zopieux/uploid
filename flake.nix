@@ -15,23 +15,25 @@
           config.android_sdk.accept_license = true;
         };
 
+        buildToolsVersion = "35.0.0";
+        jdk = pkgs.jdk17;
+
         android = pkgs.androidenv.composeAndroidPackages {
           cmdLineToolsVersion = "11.0";
           platformToolsVersion = "35.0.2";
-          buildToolsVersions = [ "35.0.0" ];
-          platformVersions = [ "35" "30" ];
+          buildToolsVersions = [ buildToolsVersion ];
+          platformVersions = [ "35" ];
           includeNDK = false;
           includeEmulator = false;
           includeSystemImages = false;
         };
-
         androidSdk = android.androidsdk;
       in
       {
         devShells.default = pkgs.mkShell rec {
           buildInputs = [
             androidSdk
-            pkgs.jdk17
+            jdk
             pkgs.gradle
             pkgs.kotlin
             pkgs.ktlint
@@ -39,8 +41,8 @@
 
           ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk}/libexec/android-sdk";
-          JAVA_HOME = "${pkgs.jdk17}";
-          GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt2";
+          JAVA_HOME = "${jdk}";
+          GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${ANDROID_SDK_ROOT}/build-tools/${buildToolsVersion}/aapt2";
 
           # Gradle needs a writable home
           shellHook = ''

@@ -125,7 +125,11 @@ fun MainScreen(viewModel: MainViewModel) {
 
     Scaffold(
         bottomBar = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface)
+                    .navigationBarsPadding()
+            ) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
