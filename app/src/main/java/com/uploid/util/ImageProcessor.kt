@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.core.graphics.scale
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
@@ -42,23 +43,19 @@ object ImageProcessor {
         val srcW = originalBitmap.width
         val srcH = originalBitmap.height
 
-        // Determine target dimensions
-        var targetW = srcW
-        var targetH = srcH
+        // Determine target dimensions keeping aspect ratio (only shrink, never enlarge)
         val maxDim = 2800
-        if (srcW > maxDim || srcH > maxDim) {
-            if (srcW > srcH) {
-                targetW = maxDim
-                targetH = (srcH * (maxDim.toDouble() / srcW)).toInt()
-            } else {
-                targetH = maxDim
-                targetW = (srcW * (maxDim.toDouble() / srcH)).toInt()
-            }
+        val srcMax = kotlin.math.max(srcW, srcH)
+        val (targetW, targetH) = if (srcMax > maxDim) {
+            val scale = maxDim.toDouble() / srcMax
+            Pair((srcW * scale).toInt(), (srcH * scale).toInt())
+        } else {
+            Pair(srcW, srcH)
         }
 
-        // Apply Lanczos Scaling if target dims are different, or keep original bitmap reference
+        // Apply scaling if target dims are different, or keep original bitmap reference
         val scaledBitmap = if (targetW != srcW || targetH != srcH) {
-            LanczosScaler.resize(originalBitmap, targetW, targetH)
+            originalBitmap.scale(targetW, targetH, filter = true)
         } else {
             originalBitmap
         }
@@ -118,18 +115,16 @@ object ImageProcessor {
         val bitmap = BitmapFactory.decodeStream(stream, null, decodeOptions) ?: return ByteArray(0)
         stream.close()
 
-        // Exact Lanczos scale or default fast scale for thumbnail
-        val thumbW: Int
-        val thumbH: Int
-        if (bitmap.width > bitmap.height) {
-            thumbW = targetMax
-            thumbH = (bitmap.height * (targetMax.toDouble() / bitmap.width)).toInt()
+        // Scale for thumbnail keeping aspect ratio (only shrink, never enlarge)
+        val srcMaxThumb = kotlin.math.max(bitmap.width, bitmap.height)
+        val (thumbW, thumbH) = if (srcMaxThumb > targetMax) {
+            val scale = targetMax.toDouble() / srcMaxThumb
+            Pair((bitmap.width * scale).toInt(), (bitmap.height * scale).toInt())
         } else {
-            thumbH = targetMax
-            thumbW = (bitmap.width * (targetMax.toDouble() / bitmap.height)).toInt()
+            Pair(bitmap.width, bitmap.height)
         }
 
-        val scaled = Bitmap.createScaledBitmap(bitmap, thumbW, thumbH, true)
+        val scaled = bitmap.scale(thumbW, thumbH, filter = true)
         val out = ByteArrayOutputStream()
         scaled.compress(Bitmap.CompressFormat.JPEG, 75, out)
 
