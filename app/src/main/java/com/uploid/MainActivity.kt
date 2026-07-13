@@ -9,17 +9,41 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +97,15 @@ class MainViewModel(private val db: AppDatabase) : ViewModel() {
         }
     }
 
+    fun restoreProvider(provider: UploadProvider) {
+        viewModelScope.launch {
+            db.uploadProviderDao().insert(provider)
+            if (provider.isDefault) {
+                db.uploadProviderDao().setDefaultProvider(provider.id)
+            }
+        }
+    }
+
     fun setAsDefault(provider: UploadProvider) {
         viewModelScope.launch {
             db.uploadProviderDao().setDefaultProvider(provider.id)
@@ -82,6 +115,12 @@ class MainViewModel(private val db: AppDatabase) : ViewModel() {
     fun clearHistory() {
         viewModelScope.launch {
             db.historyDao().clearHistory()
+        }
+    }
+
+    fun deleteHistoryEntry(entry: HistoryEntry) {
+        viewModelScope.launch {
+            db.historyDao().delete(entry)
         }
     }
 }
@@ -123,7 +162,12 @@ fun MainScreen(viewModel: MainViewModel) {
     var showAddEditDialog by remember { mutableStateOf(false) }
     var providerToEdit by remember { mutableStateOf<UploadProvider?>(null) }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    var pendingDeleteJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             Column(
                 modifier = Modifier
@@ -175,33 +219,48 @@ fun MainScreen(viewModel: MainViewModel) {
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            when (currentScreen) {
-                Screen.Settings -> {
-                    SettingsView(
-                        providers = providers,
-                        onAddClick = {
-                            providerToEdit = null
-                            showAddEditDialog = true
-                        },
-                        onEditClick = { provider ->
-                            providerToEdit = provider
-                            showAddEditDialog = true
-                        },
-                        onDeleteClick = { provider ->
-                            viewModel.deleteProvider(provider)
-                        },
-                        onSetDefaultClick = { provider ->
-                            viewModel.setAsDefault(provider)
-                        }
-                    )
-                }
-                Screen.History -> {
-                    HistoryView(
-                        history = history,
-                        onClearClick = {
-                            viewModel.clearHistory()
-                        }
-                    )
+            AnimatedContent(
+                targetState = currentScreen,
+                transitionSpec = {
+                    if (targetState == Screen.History) {
+                        (slideInHorizontally(animationSpec = tween(220)) { width -> width } + fadeIn(animationSpec = tween(220)))
+                            .togetherWith(slideOutHorizontally(animationSpec = tween(220)) { width -> -width } + fadeOut(animationSpec = tween(220)))
+                    } else {
+                        (slideInHorizontally(animationSpec = tween(220)) { width -> -width } + fadeIn(animationSpec = tween(220)))
+                            .togetherWith(slideOutHorizontally(animationSpec = tween(220)) { width -> width } + fadeOut(animationSpec = tween(220)))
+                    }
+                },
+                label = "tab_transition",
+                modifier = Modifier.fillMaxSize()
+            ) { screen ->
+                when (screen) {
+                    Screen.Settings -> {
+                        SettingsView(
+                            providers = providers,
+                            onAddClick = {
+                                providerToEdit = null
+                                showAddEditDialog = true
+                            },
+                            onEditClick = { provider ->
+                                providerToEdit = provider
+                                showAddEditDialog = true
+                            },
+                            onSetDefaultClick = { provider ->
+                                viewModel.setAsDefault(provider)
+                            }
+                        )
+                    }
+                    Screen.History -> {
+                        HistoryView(
+                            history = history,
+                            onClearClick = {
+                                viewModel.clearHistory()
+                            },
+                            onDeleteClick = { entry ->
+                                viewModel.deleteHistoryEntry(entry)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -211,7 +270,28 @@ fun MainScreen(viewModel: MainViewModel) {
         AddEditProviderDialog(
             provider = providerToEdit,
             onDismiss = { showAddEditDialog = false },
-            onSave = { name, url, param, user, pass, regex, isDefault ->
+            onDelete = providerToEdit?.let { provider ->
+                {
+                    viewModel.deleteProvider(provider)
+                    pendingDeleteJob?.cancel()
+                    pendingDeleteJob = coroutineScope.launch {
+                        val snackbarJob = coroutineScope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Deleted ${provider.name}",
+                                actionLabel = "Undo",
+                                duration = SnackbarDuration.Indefinite
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.restoreProvider(provider)
+                            }
+                        }
+                        kotlinx.coroutines.delay(10000L)
+                        snackbarJob.cancel()
+                    }
+                    showAddEditDialog = false
+                }
+            },
+            onSave = { name, url, param, user, pass, regex ->
                 val p = UploadProvider(
                     id = providerToEdit?.id ?: 0L,
                     name = name,
@@ -220,7 +300,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     authUser = user,
                     authPass = pass,
                     responseRegex = regex,
-                    isDefault = isDefault
+                    isDefault = providerToEdit?.isDefault ?: false
                 )
                 viewModel.saveProvider(p)
                 showAddEditDialog = false
@@ -230,12 +310,10 @@ fun MainScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-fun SettingsView(
-    providers: List<UploadProvider>,
-    onAddClick: () -> Unit,
-    onEditClick: (UploadProvider) -> Unit,
-    onDeleteClick: (UploadProvider) -> Unit,
-    onSetDefaultClick: (UploadProvider) -> Unit
+fun ScreenSkeleton(
+    title: String,
+    actionButton: @Composable (() -> Unit)? = null,
+    content: @Composable () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -248,23 +326,53 @@ fun SettingsView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Providers",
+                text = title,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = "+ Add",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clickable { onAddClick() }
-                    .padding(8.dp)
-            )
+            if (actionButton != null) {
+                actionButton()
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        Box(modifier = Modifier.fillMaxSize()) {
+            content()
+        }
+    }
+}
+
+private fun getPixelGroupShape(index: Int, totalCount: Int): RoundedCornerShape {
+    return if (totalCount == 1) {
+        RoundedCornerShape(24.dp)
+    } else {
+        when (index) {
+            0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+            totalCount - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+            else -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+        }
+    }
+}
+
+@Composable
+fun SettingsView(
+    providers: List<UploadProvider>,
+    onAddClick: () -> Unit,
+    onEditClick: (UploadProvider) -> Unit,
+    onSetDefaultClick: (UploadProvider) -> Unit
+) {
+    ScreenSkeleton(
+        title = "Providers",
+        actionButton = {
+            TooltipIconButton(
+                onClick = onAddClick,
+                icon = Icons.Default.Add,
+                contentDescription = "Add provider",
+                tooltipText = "Add provider"
+            )
+        }
+    ) {
         if (providers.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -279,35 +387,28 @@ fun SettingsView(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(providers, key = { it.id }) { provider ->
+                itemsIndexed(providers, key = { _, provider -> provider.id }) { index, provider ->
+                    val shape = getPixelGroupShape(index, providers.size)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSetDefaultClick(provider) }
+                            .background(MaterialTheme.colorScheme.surface, shape = shape)
+                            .clip(shape)
+                            .clickable { onEditClick(provider) }
+                            .padding(16.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = provider.name,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    if (provider.isDefault) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "(Default)",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
+                                Text(
+                                    text = provider.name,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Text(
                                     text = provider.targetUrl,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -315,34 +416,15 @@ fun SettingsView(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Text(
-                                    text = "File Param: ${provider.fileParam}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                )
                             }
-                            Row {
-                                Text(
-                                    text = "Edit",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .clickable { onEditClick(provider) }
-                                        .padding(8.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Delete",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier
-                                        .clickable { onDeleteClick(provider) }
-                                        .padding(8.dp)
-                                )
-                            }
+                            TooltipIconButton(
+                                onClick = { onSetDefaultClick(provider) },
+                                icon = if (provider.isDefault) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = "Set default",
+                                tooltipText = "Set default",
+                                tint = if (provider.isDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), thickness = 0.5.dp)
                     }
                 }
             }
@@ -351,17 +433,45 @@ fun SettingsView(
 }
 
 @Composable
+fun FormField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface
+            )
+        )
+    }
+}
+
+@Composable
 fun AddEditProviderDialog(
     provider: UploadProvider?,
     onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
     onSave: (
         name: String,
         url: String,
         param: String,
         user: String?,
         pass: String?,
-        regex: String?,
-        isDefault: Boolean
+        regex: String?
     ) -> Unit
 ) {
     var name by remember { mutableStateOf(provider?.name ?: "") }
@@ -370,7 +480,6 @@ fun AddEditProviderDialog(
     var authUser by remember { mutableStateOf(provider?.authUser ?: "") }
     var authPass by remember { mutableStateOf(provider?.authPass ?: "") }
     var responseRegex by remember { mutableStateOf(provider?.responseRegex ?: "") }
-    var isDefault by remember { mutableStateOf(provider?.isDefault ?: false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -381,124 +490,101 @@ fun AddEditProviderDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp)
             ) {
                 Text(
-                    text = if (provider == null) "Add Provider" else "Edit Provider",
+                    text = if (provider == null) "Add provider" else "Edit provider",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                TextField(
+                FormField(
+                    label = "Name",
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (e.g. x0.at)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                TextField(
+                FormField(
+                    label = "Target URL",
                     value = targetUrl,
                     onValueChange = { targetUrl = it },
-                    label = { Text("Target URL") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                TextField(
+                FormField(
+                    label = "File parameter",
                     value = fileParam,
                     onValueChange = { fileParam = it },
-                    label = { Text("File Parameter (e.g. file)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                TextField(
+                FormField(
+                    label = "Basic auth username (optional)",
                     value = authUser,
                     onValueChange = { authUser = it },
-                    label = { Text("Basic Auth Username (Optional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                TextField(
+                FormField(
+                    label = "Basic auth password (optional)",
                     value = authPass,
                     onValueChange = { authPass = it },
-                    label = { Text("Basic Auth Password (Optional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                TextField(
+                FormField(
+                    label = "Response regex (optional)",
                     value = responseRegex,
                     onValueChange = { responseRegex = it },
-                    label = { Text("Response Regex (Optional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Checkbox(checked = isDefault, onCheckedChange = { isDefault = it })
-                    Text(
-                        text = "Set as default provider",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-
+                )
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            if (name.isNotBlank() && targetUrl.isNotBlank() && fileParam.isNotBlank()) {
-                                onSave(
-                                    name,
-                                    targetUrl,
-                                    fileParam,
-                                    authUser.ifBlank { null },
-                                    authPass.ifBlank { null },
-                                    responseRegex.ifBlank { null },
-                                    isDefault
-                                )
-                            }
+                    if (onDelete != null) {
+                        TextButton(
+                            onClick = onDelete,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Delete")
                         }
-                    ) {
-                        Text("Save")
+                    } else {
+                        Spacer(modifier = Modifier.width(1.dp))
+                    }
+
+                    Row {
+                        TextButton(onClick = onDismiss) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (name.isNotBlank() && targetUrl.isNotBlank() && fileParam.isNotBlank()) {
+                                    onSave(
+                                        name,
+                                        targetUrl,
+                                        fileParam,
+                                        authUser.ifBlank { null },
+                                        authPass.ifBlank { null },
+                                        responseRegex.ifBlank { null }
+                                    )
+                                }
+                            }
+                        ) {
+                            Text("Save")
+                        }
                     }
                 }
             }
@@ -506,32 +592,47 @@ fun AddEditProviderDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TooltipIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    tooltipText: String,
+    modifier: Modifier = Modifier,
+    tint: androidx.compose.ui.graphics.Color = LocalContentColor.current
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip {
+                Text(text = tooltipText)
+            }
+        },
+        state = rememberTooltipState(),
+        modifier = modifier
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(imageVector = icon, contentDescription = contentDescription, tint = tint)
+        }
+    }
+}
+
 @Composable
 fun HistoryView(
     history: List<HistoryEntry>,
-    onClearClick: () -> Unit
+    onClearClick: () -> Unit,
+    onDeleteClick: (HistoryEntry) -> Unit
 ) {
     val context = LocalContext.current
     val sdf = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "History",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
+    ScreenSkeleton(
+        title = "History",
+        actionButton = {
             if (history.isNotEmpty()) {
                 Text(
-                    text = "Clear All",
+                    text = "Clear all",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error,
@@ -541,9 +642,7 @@ fun HistoryView(
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
+    ) {
         if (history.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -558,42 +657,40 @@ fun HistoryView(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(history, key = { it.id }) { entry ->
+                itemsIndexed(history, key = { _, entry -> entry.id }) { index, entry ->
                     val bitmap = remember(entry.thumbnailBytes) {
                         BitmapFactory.decodeByteArray(entry.thumbnailBytes, 0, entry.thumbnailBytes.size)?.asImageBitmap()
                     }
+                    val shape = getPixelGroupShape(index, history.size)
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                // Copy link to clipboard
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("uploid link", entry.link)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Copied link to clipboard", Toast.LENGTH_SHORT).show()
-                            },
+                            .background(MaterialTheme.colorScheme.surface, shape = shape)
+                            .clip(shape)
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (bitmap != null) {
                             Image(
                                 bitmap = bitmap,
-                                contentDescription = "thumbnail",
+                                contentDescription = "Thumbnail",
                                 modifier = Modifier
                                     .size(64.dp)
                                     .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(12.dp))
                             )
                         } else {
                             Box(
                                 modifier = Modifier
                                     .size(64.dp)
-                                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f)),
+                                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(12.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "No Img",
+                                    text = "No image",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
                                 )
@@ -620,13 +717,24 @@ fun HistoryView(
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        Text(
-                            text = "Share",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TooltipIconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("uploid link", entry.link)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Copied link to clipboard", Toast.LENGTH_SHORT).show()
+                                },
+                                icon = Icons.Default.ContentCopy,
+                                contentDescription = "Copy link",
+                                tooltipText = "Copy link"
+                            )
+
+                            TooltipIconButton(
+                                onClick = {
                                     val sendIntent = Intent().apply {
                                         action = Intent.ACTION_SEND
                                         putExtra(Intent.EXTRA_TEXT, entry.link)
@@ -634,11 +742,22 @@ fun HistoryView(
                                     }
                                     val shareIntent = Intent.createChooser(sendIntent, null)
                                     context.startActivity(shareIntent)
-                                }
-                                .padding(8.dp)
-                        )
+                                },
+                                icon = Icons.Default.Share,
+                                contentDescription = "Share link",
+                                tooltipText = "Share link"
+                            )
+
+                            TooltipIconButton(
+                                onClick = {
+                                    onDeleteClick(entry)
+                                },
+                                icon = Icons.Default.Delete,
+                                contentDescription = "Delete entry",
+                                tooltipText = "Delete entry"
+                            )
+                        }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), thickness = 0.5.dp)
                 }
             }
         }

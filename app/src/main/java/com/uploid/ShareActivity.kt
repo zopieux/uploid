@@ -23,10 +23,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import java.util.Locale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +43,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+fun formatSize(bytes: Int): String {
+    if (bytes < 1024) return "$bytes B"
+    val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
+    val unit = when (exp) {
+        1 -> "KiB"
+        2 -> "MiB"
+        3 -> "GiB"
+        else -> "TiB"
+    }
+    return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024.0, exp.toDouble()), unit)
+}
 
 class ShareActivity : ComponentActivity() {
 
@@ -74,6 +89,18 @@ enum class UploadState {
     Idle, Uploading, Success
 }
 
+private fun getPixelGroupShape(index: Int, totalCount: Int): RoundedCornerShape {
+    return if (totalCount == 1) {
+        RoundedCornerShape(24.dp)
+    } else {
+        when (index) {
+            0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+            totalCount - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+            else -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+        }
+    }
+}
+
 @Composable
 fun ShareScreen(
     imageUri: Uri,
@@ -87,11 +114,39 @@ fun ShareScreen(
     var uploadState by remember { mutableStateOf(UploadState.Idle) }
     var uploadResultLink by remember { mutableStateOf("") }
 
-    // Slider position: 0 to 4 (snappy)
+    // Slider position: 0 to 6 (snappy)
     var sliderValue by remember { mutableStateOf(0f) }
 
     // Load image preview bitmap safely (downscaled for UI performance)
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    val currentStep = sliderValue.toInt()
+    var liveSizeText by remember { mutableStateOf("...") }
+    val processedCache = remember { mutableStateMapOf<Int, com.uploid.util.ProcessedResult>() }
+
+    LaunchedEffect(currentStep, imageUri) {
+        val cached = processedCache[currentStep]
+        if (cached != null) {
+            liveSizeText = formatSize(cached.bytes.size)
+        } else {
+            withContext(Dispatchers.Default) {
+                try {
+                    val processed = ImageProcessor.processImage(context, imageUri, currentStep)
+                    val bytesCount = processed.bytes.size
+                    val formatted = formatSize(bytesCount)
+                    withContext(Dispatchers.Main) {
+                        processedCache[currentStep] = processed
+                        liveSizeText = formatted
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    withContext(Dispatchers.Main) {
+                        liveSizeText = ""
+                    }
+                }
+            }
+        }
+    }
 
     // Load providers & preview
     LaunchedEffect(imageUri) {
@@ -129,259 +184,307 @@ fun ShareScreen(
     val scrollState = rememberScrollState()
 
     Scaffold { paddingValues ->
+        val configuration = LocalConfiguration.current
+        val screenHeight = configuration.screenHeightDp.dp
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(scrollState)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 24.dp)
         ) {
-            // Title
-            Text(
-                text = "uploid",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            // Image Preview (stays throughout all states)
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
-                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
+                    .heightIn(min = screenHeight - 120.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                previewBitmap?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Image preview",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                } ?: CircularProgressIndicator()
-            }
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
+                // Title
+                Text(
+                    text = "uploid",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
 
-            when (uploadState) {
-                UploadState.Idle -> {
-                    // Providers selection
-                    Text(
-                        text = "Select Provider",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Start
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                // Image Preview (stays throughout all states)
+                val maxPreviewHeight = (configuration.screenHeightDp * 0.25f).dp
+                val imageRatio = previewBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: 1f
 
-                    if (providers.isEmpty()) {
-                        Text(
-                            text = "No providers available. Please configure one in Settings.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        providers.forEach { provider ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { selectedProvider = provider }
-                                    .padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = (selectedProvider?.id == provider.id),
-                                    onClick = { selectedProvider = provider }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = provider.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = if (selectedProvider?.id == provider.id) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    Text(
-                                        text = provider.targetUrl,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Quality slider
-                    Text(
-                        text = "Quality Settings",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Start
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val label = when (sliderValue.toInt()) {
-                        0 -> "Original (No modification)"
-                        1 -> "High (JPEG 100)"
-                        2 -> "Medium-High (JPEG 83)"
-                        3 -> "Medium-Low (JPEG 66)"
-                        4 -> "Low (JPEG 50)"
-                        else -> "Original"
-                    }
-
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Slider(
-                        value = sliderValue,
-                        onValueChange = { sliderValue = it.coerceIn(0f, 4f) },
-                        valueRange = 0f..4f,
-                        steps = 3,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    Button(
-                        onClick = {
-                            val provider = selectedProvider
-                            if (provider != null) {
-                                uploadState = UploadState.Uploading
-                                val targetPosition = sliderValue.toInt()
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    try {
-                                        val result = withContext(Dispatchers.IO) {
-                                            val processed = ImageProcessor.processImage(context, imageUri, targetPosition)
-                                            val link = Uploader.upload(provider, processed.bytes, processed.mimeType)
-                                            val thumb = ImageProcessor.createThumbnail(context, imageUri)
-                                            db.historyDao().insert(
-                                                HistoryEntry(
-                                                    thumbnailBytes = thumb,
-                                                    link = link,
-                                                    timestamp = System.currentTimeMillis()
-                                                )
-                                            )
-                                            link
-                                        }
-                                        uploadResultLink = result
-                                        uploadState = UploadState.Success
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        Toast.makeText(context, "Upload failed: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_LONG).show()
-                                        uploadState = UploadState.Idle
-                                    }
-                                }
-                            } else {
-                                Toast.makeText(context, "Please configure/select a provider", Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                if (previewBitmap != null) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
-                        enabled = (selectedProvider != null)
+                            .heightIn(max = maxPreviewHeight)
+                            .aspectRatio(imageRatio, matchHeightConstraintsFirst = true)
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Upload", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                        Image(
+                            bitmap = previewBitmap!!.asImageBitmap(),
+                            contentDescription = "Image preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.FillBounds
+                        )
                     }
-                }
-
-                UploadState.Uploading -> {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .height(maxPreviewHeight)
+                            .aspectRatio(1f)
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Uploading your image...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                        )
                     }
                 }
 
-                UploadState.Success -> {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                when (uploadState) {
+                    UploadState.Idle -> {
+                        // Providers selection
                         Text(
-                            text = "Upload Successful!",
+                            text = "Select provider",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-
-                        Text(
-                            text = uploadResultLink,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(0.5.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                .padding(16.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("uploid link", uploadResultLink)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Copy Link")
-                            }
+                            textAlign = TextAlign.Start
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                            Button(
-                                onClick = {
-                                    val sendIntent = Intent().apply {
-                                        action = Intent.ACTION_SEND
-                                        putExtra(Intent.EXTRA_TEXT, uploadResultLink)
-                                        type = "text/plain"
-                                    }
-                                    val shareIntent = Intent.createChooser(sendIntent, null)
-                                    context.startActivity(shareIntent)
-                                },
-                                modifier = Modifier.weight(1f)
+                        if (providers.isEmpty()) {
+                            Text(
+                                text = "No providers available. Please configure one in Settings.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text("Share Link")
+                                providers.forEachIndexed { index, provider ->
+                                    val shape = getPixelGroupShape(index, providers.size)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.surface, shape = shape)
+                                            .clip(shape)
+                                            .clickable { selectedProvider = provider }
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = (selectedProvider?.id == provider.id),
+                                            onClick = { selectedProvider = provider }
+                                        )
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = provider.name,
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = provider.targetUrl,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        Button(
-                            onClick = onFinish,
-                            modifier = Modifier.fillMaxWidth()
+                        // Quality slider
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Done")
+                            Text(
+                                text = "Quality",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = liveSizeText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val label = when (sliderValue.toInt()) {
+                            0 -> "JPEG, 50%"
+                            1 -> "JPEG, 60%"
+                            2 -> "JPEG, 70%"
+                            3 -> "JPEG, 80%"
+                            4 -> "JPEG, 90%"
+                            5 -> "JPEG, 100%"
+                            6 -> "Original"
+                            else -> "Original"
+                        }
+
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Slider(
+                            value = sliderValue,
+                            onValueChange = { sliderValue = it.coerceIn(0f, 6f) },
+                            valueRange = 0f..6f,
+                            steps = 5,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                val provider = selectedProvider
+                                if (provider != null) {
+                                    uploadState = UploadState.Uploading
+                                    val targetPosition = sliderValue.toInt()
+                                    CoroutineScope(Dispatchers.Main).launch {
+                                        try {
+                                            val result = withContext(Dispatchers.IO) {
+                                                val processed = processedCache[targetPosition] ?: ImageProcessor.processImage(context, imageUri, targetPosition)
+                                                val link = Uploader.upload(provider, processed.bytes, processed.mimeType)
+                                                val thumb = ImageProcessor.createThumbnail(context, imageUri)
+                                                db.historyDao().insert(
+                                                    HistoryEntry(
+                                                        thumbnailBytes = thumb,
+                                                        link = link,
+                                                        timestamp = System.currentTimeMillis()
+                                                    )
+                                                )
+                                                link
+                                            }
+                                            uploadResultLink = result
+                                            uploadState = UploadState.Success
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            Toast.makeText(context, "Upload failed: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_LONG).show()
+                                            uploadState = UploadState.Idle
+                                        }
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Please configure/select a provider", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            enabled = (selectedProvider != null)
+                        ) {
+                            Text("Upload", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+
+                    UploadState.Uploading -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Uploading your image...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+
+                    UploadState.Success -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Upload successful!",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+
+                            Text(
+                                text = uploadResultLink,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(0.5.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                    .padding(16.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("uploid link", uploadResultLink)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Copy link")
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val sendIntent = Intent().apply {
+                                            action = Intent.ACTION_SEND
+                                            putExtra(Intent.EXTRA_TEXT, uploadResultLink)
+                                            type = "text/plain"
+                                        }
+                                        val shareIntent = Intent.createChooser(sendIntent, null)
+                                        context.startActivity(shareIntent)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Share link")
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.weight(1f))
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = onFinish,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Close")
+                            }
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

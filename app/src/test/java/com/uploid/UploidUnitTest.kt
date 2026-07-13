@@ -75,4 +75,15 @@ class UploidUnitTest {
         assertFalse(regularProvider.isDefault)
         assertEquals("file", defaultProvider.fileParam)
     }
+
+    @Test
+    fun testFormatSizeHelper() {
+        // Test bytes
+        assertEquals("500 B", formatSize(500))
+        // Test KiB
+        assertEquals("1.0 KiB", formatSize(1024))
+        assertEquals("1.5 KiB", formatSize((1024 * 1.5).toInt()))
+        // Test MiB
+        assertEquals("2.3 MiB", formatSize((1024 * 1024 * 2.3).toInt()))
+    }
 }
