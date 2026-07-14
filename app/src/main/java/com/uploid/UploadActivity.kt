@@ -196,35 +196,47 @@ fun ShareScreen(
     var remainingCount by remember { mutableStateOf(0) }
 
     LaunchedEffect(currentStep, imageUris) {
-        liveSizeText = "..."
-        withContext(Dispatchers.Default) {
-            val sizes = mutableListOf<Long>()
-            var allSucceeded = true
-            for (uri in imageUris) {
-                val cached = processedCache[Pair(uri, currentStep)]
-                if (cached != null) {
-                    sizes.add(cached.bytes.size.toLong())
-                } else {
-                    try {
-                        val processed = ImageProcessor.processImage(context, uri, currentStep)
-                        processedCache[Pair(uri, currentStep)] = processed
-                        sizes.add(processed.bytes.size.toLong())
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        allSucceeded = false
+        val allCached = imageUris.all { uri -> processedCache.containsKey(Pair(uri, currentStep)) }
+        if (allCached) {
+            val totalSize = imageUris.sumOf { uri ->
+                processedCache[Pair(uri, currentStep)]?.bytes?.size?.toLong() ?: 0L
+            }
+            if (imageUris.size == 1) {
+                liveSizeText = formatSize(totalSize)
+            } else {
+                liveSizeText = "${formatSize(totalSize)} \u22c5 ${imageUris.size} images"
+            }
+        } else {
+            liveSizeText = "..."
+            withContext(Dispatchers.Default) {
+                val sizes = mutableListOf<Long>()
+                var allSucceeded = true
+                for (uri in imageUris) {
+                    val cached = processedCache[Pair(uri, currentStep)]
+                    if (cached != null) {
+                        sizes.add(cached.bytes.size.toLong())
+                    } else {
+                        try {
+                            val processed = ImageProcessor.processImage(context, uri, currentStep)
+                            processedCache[Pair(uri, currentStep)] = processed
+                            sizes.add(processed.bytes.size.toLong())
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            allSucceeded = false
+                        }
                     }
                 }
-            }
-            withContext(Dispatchers.Main) {
-                if (allSucceeded) {
-                    val totalSize = sizes.sum()
-                    if (imageUris.size == 1) {
-                        liveSizeText = formatSize(totalSize)
+                withContext(Dispatchers.Main) {
+                    if (allSucceeded) {
+                        val totalSize = sizes.sum()
+                        if (imageUris.size == 1) {
+                            liveSizeText = formatSize(totalSize)
+                        } else {
+                            liveSizeText = "${formatSize(totalSize)} \u22c5 ${imageUris.size} images"
+                        }
                     } else {
-                        liveSizeText = "${formatSize(totalSize)} \u22c5 ${imageUris.size} images"
+                        liveSizeText = ""
                     }
-                } else {
-                    liveSizeText = ""
                 }
             }
         }
@@ -496,12 +508,20 @@ fun ShareScreen(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            Text(
-                                text = liveSizeText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            if (liveSizeText == "...") {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                                )
+                            } else {
+                                Text(
+                                    text = liveSizeText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(4.dp))
