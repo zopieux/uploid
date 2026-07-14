@@ -30,6 +30,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+
 @Composable
 fun ScreenSkeleton(
     title: String,
@@ -39,7 +43,7 @@ fun ScreenSkeleton(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -62,9 +66,44 @@ fun ScreenSkeleton(
 
         Box(modifier = Modifier.fillMaxSize()) {
             content()
+
+            // Top gradient overlay
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(32.dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.background,
+                                MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
+            // Bottom gradient overlay
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(32.dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                MaterialTheme.colorScheme.background
+                            )
+                        )
+                    )
+            )
         }
     }
 }
+
 
 fun getPixelGroupShape(index: Int, totalCount: Int): RoundedCornerShape {
     return if (totalCount == 1) {

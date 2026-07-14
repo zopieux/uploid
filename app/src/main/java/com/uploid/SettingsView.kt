@@ -68,6 +68,7 @@ fun SettingsView(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 32.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 itemsIndexed(providers, key = { _, provider -> provider.id }) { index, provider ->

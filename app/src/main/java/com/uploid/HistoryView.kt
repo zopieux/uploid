@@ -76,6 +76,7 @@ fun HistoryView(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 32.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 itemsIndexed(history, key = { _, entry -> entry.id }) { index, entry ->
@@ -88,14 +89,14 @@ fun HistoryView(
                     val isPrevSame = index > 0 && history[index - 1].timestamp == entry.timestamp
                     val isNextSame = index < history.size - 1 && history[index + 1].timestamp == entry.timestamp
 
-                    val shape = remember(index, history.size, isPrevSame, isNextSame) {
-                        val isFirstInList = index == 0
-                        val isLastInList = index == history.size - 1
-                        val isSingleInList = history.size == 1
+                    val isFirstInList = index == 0
+                    val isLastInList = index == history.size - 1
+                    val isSingleInList = history.size == 1
 
-                        val standardTop = if (isSingleInList || isFirstInList) 24.dp else 4.dp
-                        val standardBottom = if (isSingleInList || isLastInList) 24.dp else 4.dp
+                    val standardTop = if (isSingleInList || isFirstInList) 24.dp else 4.dp
+                    val standardBottom = if (isSingleInList || isLastInList) 24.dp else 4.dp
 
+                    val shape = remember(standardTop, standardBottom, isPrevSame, isNextSame) {
                         val topStart = if (isPrevSame) 0.dp else standardTop
                         val bottomStart = if (isNextSame) 0.dp else standardBottom
 
@@ -106,8 +107,6 @@ fun HistoryView(
                             bottomEnd = standardBottom
                         )
                     }
-
-                    val bottomPadding = if (isNextSame) 0.dp else 4.dp
 
                     val displayLink = remember(entry.link) {
                         val clean = entry.link
@@ -124,99 +123,105 @@ fun HistoryView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(IntrinsicSize.Min)
-                            .padding(bottom = bottomPadding)
-                            .background(MaterialTheme.colorScheme.surface, shape = shape)
-                            .clip(shape)
                     ) {
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .height(IntrinsicSize.Min)
+                                .padding(bottom = 4.dp)
+                                .background(MaterialTheme.colorScheme.surface, shape = shape)
+                                .clip(shape)
                         ) {
-                            if (bitmap != null) {
-                                Image(
-                                    bitmap = bitmap,
-                                    contentDescription = "Thumbnail",
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(12.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "No image",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = displayLink,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = sdf.format(Date(entry.timestamp)),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(8.dp))
-
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                TooltipIconButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("uploid link", entry.link)
-                                        clipboard.setPrimaryClip(clip)
-                                        onShowSnackbar("Copied link to clipboard")
-                                    },
-                                    icon = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy link",
-                                    tooltipText = "Copy link"
-                                )
+                                if (bitmap != null) {
+                                    Image(
+                                        bitmap = bitmap,
+                                        contentDescription = "Thumbnail",
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(12.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No image",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                }
 
-                                TooltipIconButton(
-                                    onClick = {
-                                        val sendIntent = Intent().apply {
-                                            action = Intent.ACTION_SEND
-                                            putExtra(Intent.EXTRA_TEXT, entry.link)
-                                            type = "text/plain"
-                                        }
-                                        val shareIntent = Intent.createChooser(sendIntent, null)
-                                        context.startActivity(shareIntent)
-                                    },
-                                    icon = Icons.Default.Share,
-                                    contentDescription = "Share link",
-                                    tooltipText = "Share link"
-                                )
+                                Spacer(modifier = Modifier.width(16.dp))
 
-                                TooltipIconButton(
-                                    onClick = {
-                                        onDeleteClick(entry)
-                                    },
-                                    icon = Icons.Default.Delete,
-                                    contentDescription = "Delete entry",
-                                    tooltipText = "Delete entry"
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = displayLink,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = sdf.format(Date(entry.timestamp)),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TooltipIconButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val clip = ClipData.newPlainText("uploid link", entry.link)
+                                            clipboard.setPrimaryClip(clip)
+                                            onShowSnackbar("Copied link to clipboard")
+                                        },
+                                        icon = Icons.Default.ContentCopy,
+                                        contentDescription = "Copy link",
+                                        tooltipText = "Copy link"
+                                    )
+
+                                    TooltipIconButton(
+                                        onClick = {
+                                            val sendIntent = Intent().apply {
+                                                action = Intent.ACTION_SEND
+                                                putExtra(Intent.EXTRA_TEXT, entry.link)
+                                                type = "text/plain"
+                                            }
+                                            val shareIntent = Intent.createChooser(sendIntent, null)
+                                            context.startActivity(shareIntent)
+                                        },
+                                        icon = Icons.Default.Share,
+                                        contentDescription = "Share link",
+                                        tooltipText = "Share link"
+                                    )
+
+                                    TooltipIconButton(
+                                        onClick = {
+                                            onDeleteClick(entry)
+                                        },
+                                        icon = Icons.Default.Delete,
+                                        contentDescription = "Delete entry",
+                                        tooltipText = "Delete entry"
+                                    )
+                                }
                             }
                         }
 
@@ -224,11 +229,19 @@ fun HistoryView(
                         if (isPrevSame || isNextSame) {
                             Box(
                                 modifier = Modifier
-                                    .align(Alignment.CenterStart)
+                                    .fillMaxWidth()
                                     .fillMaxHeight()
-                                    .width(4.dp)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
+                                    .padding(bottom = if (isNextSame) 0.dp else 4.dp)
+                                    .clip(shape)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .fillMaxHeight()
+                                        .width(4.dp)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                            }
                         }
                     }
                 }
