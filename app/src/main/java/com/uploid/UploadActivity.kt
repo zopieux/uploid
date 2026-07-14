@@ -25,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +45,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.TextView
+import android.text.TextUtils
+import android.util.TypedValue
+import androidx.compose.ui.graphics.toArgb
 
 fun formatSize(bytes: Int): String {
     if (bytes < 1024) return "$bytes B"
@@ -56,7 +63,7 @@ fun formatSize(bytes: Int): String {
     return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024.0, exp.toDouble()), unit)
 }
 
-class ShareActivity : ComponentActivity() {
+class UploadActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -154,17 +161,7 @@ fun ReusableToggleRow(
     }
 }
 
-private fun getPixelGroupShape(index: Int, totalCount: Int): RoundedCornerShape {
-    return if (totalCount == 1) {
-        RoundedCornerShape(24.dp)
-    } else {
-        when (index) {
-            0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-            totalCount - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-            else -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-        }
-    }
-}
+
 
 @Composable
 fun ShareScreen(
@@ -251,26 +248,27 @@ fun ShareScreen(
     }
 
     val scrollState = rememberScrollState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
-    Scaffold { paddingValues ->
+    Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { paddingValues ->
         val configuration = LocalConfiguration.current
 
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 24.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState),
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Title
                 Text(
                     text = "uploid",
@@ -339,35 +337,18 @@ fun ShareScreen(
                             ) {
                                 providers.forEachIndexed { index, provider ->
                                     val shape = getPixelGroupShape(index, providers.size)
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(MaterialTheme.colorScheme.surface, shape = shape)
-                                            .clip(shape)
-                                            .clickable { selectedProvider = provider }
-                                            .padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = (selectedProvider?.id == provider.id),
-                                            onClick = { selectedProvider = provider }
-                                        )
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = provider.name,
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = provider.targetUrl,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                    ProviderRow(
+                                        name = provider.name,
+                                        targetUrl = null,
+                                        shape = shape,
+                                        modifier = Modifier.clickable { selectedProvider = provider },
+                                        leadingContent = {
+                                            RadioButton(
+                                                selected = (selectedProvider?.id == provider.id),
+                                                onClick = { selectedProvider = provider }
                                             )
                                         }
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -477,12 +458,21 @@ fun ShareScreen(
                                 modifier = Modifier.padding(vertical = 8.dp)
                             )
 
-                            Text(
-                                text = uploadResultLink,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                textAlign = TextAlign.Center,
+                            val primaryColor = MaterialTheme.colorScheme.primary.toArgb()
+                            AndroidView(
+                                factory = { ctx ->
+                                    TextView(ctx).apply {
+                                        maxLines = 1
+                                        ellipsize = TextUtils.TruncateAt.MIDDLE
+                                        textAlignment = TextView.TEXT_ALIGNMENT_CENTER
+                                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                                        setTypeface(null, android.graphics.Typeface.BOLD)
+                                    }
+                                },
+                                update = { textView ->
+                                    textView.text = uploadResultLink
+                                    textView.setTextColor(primaryColor)
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .border(0.5.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
@@ -500,7 +490,9 @@ fun ShareScreen(
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         val clip = ClipData.newPlainText("uploid link", uploadResultLink)
                                         clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Copied to clipboard")
+                                        }
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -526,81 +518,90 @@ fun ShareScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(100.dp))
             }
 
-            // Fixed bottom buttons area
-            when (uploadState) {
-                UploadState.Idle -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val provider = selectedProvider
-                                if (provider != null) {
-                                    uploadState = UploadState.Uploading
-                                    val targetPosition = sliderValue.toInt()
-                                    CoroutineScope(Dispatchers.Main).launch {
-                                        try {
-                                            val result = withContext(Dispatchers.IO) {
-                                                val processed = processedCache[targetPosition] ?: ImageProcessor.processImage(context, imageUri, targetPosition)
-                                                val finalBytes = if (stripMetadataEnabled) {
-                                                    ImageProcessor.stripMetadata(context, processed.bytes, processed.mimeType)
-                                                } else {
-                                                    processed.bytes
-                                                }
-                                                val link = Uploader.upload(provider, finalBytes, processed.mimeType, secretUrlEnabled)
-                                                val thumb = ImageProcessor.createThumbnail(context, imageUri)
-                                                db.historyDao().insert(
-                                                    HistoryEntry(
-                                                        thumbnailBytes = thumb,
-                                                        link = link,
-                                                        timestamp = System.currentTimeMillis()
+            if (uploadState != UploadState.Uploading) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
+                                    MaterialTheme.colorScheme.background,
+                                    MaterialTheme.colorScheme.background
+                                )
+                            )
+                        )
+                        .padding(horizontal = 24.dp)
+                        .padding(top = 24.dp, bottom = 16.dp)
+                ) {
+                    when (uploadState) {
+                        UploadState.Idle -> {
+                            Button(
+                                onClick = {
+                                    val provider = selectedProvider
+                                    if (provider != null) {
+                                        uploadState = UploadState.Uploading
+                                        val targetPosition = sliderValue.toInt()
+                                        coroutineScope.launch {
+                                            try {
+                                                val result = withContext(Dispatchers.IO) {
+                                                    val processed = processedCache[targetPosition] ?: ImageProcessor.processImage(context, imageUri, targetPosition)
+                                                    val finalBytes = if (stripMetadataEnabled) {
+                                                        ImageProcessor.stripMetadata(context, processed.bytes, processed.mimeType)
+                                                    } else {
+                                                        processed.bytes
+                                                    }
+                                                    val link = Uploader.upload(provider, finalBytes, processed.mimeType, secretUrlEnabled)
+                                                    val thumb = ImageProcessor.createThumbnail(context, imageUri)
+                                                    db.historyDao().insert(
+                                                        HistoryEntry(
+                                                            thumbnailBytes = thumb,
+                                                            link = link,
+                                                            timestamp = System.currentTimeMillis()
+                                                        )
                                                     )
-                                                )
-                                                link
+                                                    link
+                                                }
+                                                uploadResultLink = result
+                                                uploadState = UploadState.Success
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                snackbarHostState.showSnackbar("Upload failed: ${e.localizedMessage ?: "Unknown error"}")
+                                                uploadState = UploadState.Idle
                                             }
-                                            uploadResultLink = result
-                                            uploadState = UploadState.Success
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                            Toast.makeText(context, "Upload failed: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_LONG).show()
-                                            uploadState = UploadState.Idle
+                                        }
+                                    } else {
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Please configure/select a provider")
                                         }
                                     }
-                                } else {
-                                    Toast.makeText(context, "Please configure/select a provider", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp),
-                            enabled = (selectedProvider != null)
-                        ) {
-                            Text("Upload", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp),
+                                enabled = (selectedProvider != null)
+                            ) {
+                                Text("Upload", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                            }
                         }
-                    }
-                }
-                UploadState.Success -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    ) {
-                        Button(
-                            onClick = onFinish,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                        ) {
-                            Text("Close", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                        UploadState.Success -> {
+                            Button(
+                                onClick = onFinish,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                            ) {
+                                Text("Close", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                            }
                         }
+                        else -> {}
                     }
-                }
-                else -> {
-                    // Do nothing for UploadState.Uploading
                 }
             }
         }

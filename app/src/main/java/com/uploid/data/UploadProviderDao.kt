@@ -5,10 +5,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UploadProviderDao {
-    @Query("SELECT * FROM upload_providers ORDER BY id ASC")
+    @Query("SELECT * FROM upload_providers ORDER BY name COLLATE NOCASE ASC")
     fun getAllProviders(): Flow<List<UploadProvider>>
 
-    @Query("SELECT * FROM upload_providers ORDER BY id ASC")
+    @Query("SELECT * FROM upload_providers ORDER BY name COLLATE NOCASE ASC")
     suspend fun getAllProvidersSync(): List<UploadProvider>
 
     @Query("SELECT * FROM upload_providers WHERE isDefault = 1 LIMIT 1")

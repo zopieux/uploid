@@ -22,7 +22,7 @@
         </activity>
 
         <activity
-            android:name=".ShareActivity"
+            android:name=".UploadActivity"
             android:exported="true"
             android:label="Upload with uploid"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
