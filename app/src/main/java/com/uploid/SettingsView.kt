@@ -35,12 +35,15 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uploid.data.UploadProvider
@@ -157,6 +160,11 @@ fun AddEditProviderSheet(
     var authPass by remember { mutableStateOf(provider?.authPass ?: "") }
     var responseRegex by remember { mutableStateOf(provider?.responseRegex ?: "") }
 
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss
     ) {
@@ -178,7 +186,9 @@ fun AddEditProviderSheet(
                 label = "Name",
                 value = name,
                 onValueChange = { name = it },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
             )
             Spacer(modifier = Modifier.height(8.dp))
 
