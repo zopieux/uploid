@@ -108,8 +108,8 @@ fun SettingsView(
                             TooltipIconButton(
                                 onClick = { onSetDefaultClick(provider) },
                                 icon = if (provider.isDefault) Icons.Default.Star else Icons.Default.StarBorder,
-                                contentDescription = "Set default",
-                                tooltipText = "Set default",
+                                contentDescription = if (provider.isDefault) "This is the default provider" else "Set as default",
+                                tooltipText = if (provider.isDefault) "This is the default provider" else "Set as default",
                                 tint = if (provider.isDefault) PurpleAccent else MaterialTheme.colorScheme.primary.copy(
                                     alpha = 0.4f
                                 )
