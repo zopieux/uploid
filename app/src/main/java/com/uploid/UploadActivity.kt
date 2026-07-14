@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.toArgb
 
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 
 fun formatSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
@@ -163,6 +165,7 @@ fun ReusableToggleRow(
 
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShareScreen(
     imageUris: List<Uri>,
@@ -189,6 +192,7 @@ fun ShareScreen(
     val currentStep = sliderValue.toInt()
     var liveSizeText by remember { mutableStateOf("...") }
     val processedCache = remember { mutableStateMapOf<Pair<Uri, Int>, com.uploid.util.ProcessedResult>() }
+    var isSizeLargerThanOriginal by remember { mutableStateOf(false) }
 
     // Multi-upload counts
     var succeededCount by remember { mutableStateOf(0) }
@@ -196,11 +200,18 @@ fun ShareScreen(
     var remainingCount by remember { mutableStateOf(0) }
 
     LaunchedEffect(currentStep, imageUris) {
-        val allCached = imageUris.all { uri -> processedCache.containsKey(Pair(uri, currentStep)) }
-        if (allCached) {
+        val allStepCached = imageUris.all { uri -> processedCache.containsKey(Pair(uri, currentStep)) }
+        val allOriginalCached = imageUris.all { uri -> processedCache.containsKey(Pair(uri, 6)) }
+
+        if (allStepCached && allOriginalCached) {
             val totalSize = imageUris.sumOf { uri ->
                 processedCache[Pair(uri, currentStep)]?.bytes?.size?.toLong() ?: 0L
             }
+            val originalTotalSize = imageUris.sumOf { uri ->
+                processedCache[Pair(uri, 6)]?.bytes?.size?.toLong() ?: 0L
+            }
+            isSizeLargerThanOriginal = currentStep < 6 && totalSize > originalTotalSize
+
             if (imageUris.size == 1) {
                 liveSizeText = formatSize(totalSize)
             } else {
@@ -209,26 +220,41 @@ fun ShareScreen(
         } else {
             liveSizeText = "..."
             withContext(Dispatchers.Default) {
-                val sizes = mutableListOf<Long>()
+                var totalSize = 0L
+                var originalTotalSize = 0L
                 var allSucceeded = true
                 for (uri in imageUris) {
-                    val cached = processedCache[Pair(uri, currentStep)]
-                    if (cached != null) {
-                        sizes.add(cached.bytes.size.toLong())
-                    } else {
+                    var processed = processedCache[Pair(uri, currentStep)]
+                    if (processed == null) {
                         try {
-                            val processed = ImageProcessor.processImage(context, uri, currentStep)
+                            processed = ImageProcessor.processImage(context, uri, currentStep)
                             processedCache[Pair(uri, currentStep)] = processed
-                            sizes.add(processed.bytes.size.toLong())
                         } catch (e: Exception) {
                             e.printStackTrace()
                             allSucceeded = false
                         }
                     }
+                    if (processed != null) {
+                        totalSize += processed.bytes.size.toLong()
+                    }
+
+                    var originalProcessed = processedCache[Pair(uri, 6)]
+                    if (originalProcessed == null) {
+                        try {
+                            originalProcessed = ImageProcessor.processImage(context, uri, 6)
+                            processedCache[Pair(uri, 6)] = originalProcessed
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            allSucceeded = false
+                        }
+                    }
+                    if (originalProcessed != null) {
+                        originalTotalSize += originalProcessed.bytes.size.toLong()
+                    }
                 }
                 withContext(Dispatchers.Main) {
                     if (allSucceeded) {
-                        val totalSize = sizes.sum()
+                        isSizeLargerThanOriginal = currentStep < 6 && totalSize > originalTotalSize
                         if (imageUris.size == 1) {
                             liveSizeText = formatSize(totalSize)
                         } else {
@@ -236,6 +262,7 @@ fun ShareScreen(
                         }
                     } else {
                         liveSizeText = ""
+                        isSizeLargerThanOriginal = false
                     }
                 }
             }
@@ -515,12 +542,44 @@ fun ShareScreen(
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                                 )
                             } else {
-                                Text(
-                                    text = liveSizeText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                if (isSizeLargerThanOriginal) {
+                                    val warningColor = Color(0xFFD32F2F) // Non-aggressive red (Material 500/700 style)
+                                    val tooltipMessage = "This compression level is counter-productive and a lower quality (or original) should be picked."
+                                    TooltipBox(
+                                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                        tooltip = {
+                                            PlainTooltip {
+                                                Text(text = tooltipMessage)
+                                            }
+                                        },
+                                        state = rememberTooltipState()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Warning,
+                                                contentDescription = "Warning: size larger than original",
+                                                tint = warningColor,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = liveSizeText,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = warningColor,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        text = liveSizeText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
 
