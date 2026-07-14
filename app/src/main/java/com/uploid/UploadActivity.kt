@@ -51,7 +51,10 @@ import android.text.TextUtils
 import android.util.TypedValue
 import androidx.compose.ui.graphics.toArgb
 
-fun formatSize(bytes: Int): String {
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+
+fun formatSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
     val unit = when (exp) {
@@ -63,19 +66,36 @@ fun formatSize(bytes: Int): String {
     return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024.0, exp.toDouble()), unit)
 }
 
+fun formatSize(bytes: Int): String = formatSize(bytes.toLong())
+
 class UploadActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val intentUri = if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("image/") == true) {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-        } else {
-            null
+        val intentUris = when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val uri = if (intent.type?.startsWith("image/") == true) {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                } else {
+                    null
+                }
+                if (uri != null) listOf(uri) else emptyList()
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val list = if (intent.type?.startsWith("image/") == true) {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                } else {
+                    null
+                }
+                list ?: emptyList()
+            }
+            else -> emptyList()
         }
 
-        if (intentUri == null) {
+        if (intentUris.isEmpty()) {
             Toast.makeText(this, "No image shared", Toast.LENGTH_SHORT).show()
             finish()
             return
@@ -84,7 +104,7 @@ class UploadActivity : ComponentActivity() {
         setContent {
             UploidTheme {
                 ShareScreen(
-                    imageUri = intentUri,
+                    imageUris = intentUris,
                     onFinish = { finish() }
                 )
             }
@@ -145,7 +165,7 @@ fun ReusableToggleRow(
 
 @Composable
 fun ShareScreen(
-    imageUri: Uri,
+    imageUris: List<Uri>,
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
@@ -163,39 +183,55 @@ fun ShareScreen(
     var stripMetadataEnabled by remember { mutableStateOf(prefs.getBoolean("pref_strip_metadata", true)) }
     var secretUrlEnabled by remember { mutableStateOf(prefs.getBoolean("pref_secret_url", false)) }
 
-    // Load image preview bitmap safely (downscaled for UI performance)
-    var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // Load downscaled preview bitmaps safely for all URIs
+    var previewBitmaps by remember { mutableStateOf<Map<Uri, Bitmap>>(emptyMap()) }
 
     val currentStep = sliderValue.toInt()
     var liveSizeText by remember { mutableStateOf("...") }
-    val processedCache = remember { mutableStateMapOf<Int, com.uploid.util.ProcessedResult>() }
+    val processedCache = remember { mutableStateMapOf<Pair<Uri, Int>, com.uploid.util.ProcessedResult>() }
 
-    LaunchedEffect(currentStep, imageUri) {
-        val cached = processedCache[currentStep]
-        if (cached != null) {
-            liveSizeText = formatSize(cached.bytes.size)
-        } else {
-            withContext(Dispatchers.Default) {
-                try {
-                    val processed = ImageProcessor.processImage(context, imageUri, currentStep)
-                    val bytesCount = processed.bytes.size
-                    val formatted = formatSize(bytesCount)
-                    withContext(Dispatchers.Main) {
-                        processedCache[currentStep] = processed
-                        liveSizeText = formatted
+    // Multi-upload counts
+    var succeededCount by remember { mutableStateOf(0) }
+    var failedCount by remember { mutableStateOf(0) }
+    var remainingCount by remember { mutableStateOf(0) }
+
+    LaunchedEffect(currentStep, imageUris) {
+        liveSizeText = "..."
+        withContext(Dispatchers.Default) {
+            val sizes = mutableListOf<Long>()
+            var allSucceeded = true
+            for (uri in imageUris) {
+                val cached = processedCache[Pair(uri, currentStep)]
+                if (cached != null) {
+                    sizes.add(cached.bytes.size.toLong())
+                } else {
+                    try {
+                        val processed = ImageProcessor.processImage(context, uri, currentStep)
+                        processedCache[Pair(uri, currentStep)] = processed
+                        sizes.add(processed.bytes.size.toLong())
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        allSucceeded = false
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    withContext(Dispatchers.Main) {
-                        liveSizeText = ""
+                }
+            }
+            withContext(Dispatchers.Main) {
+                if (allSucceeded) {
+                    val totalSize = sizes.sum()
+                    if (imageUris.size == 1) {
+                        liveSizeText = formatSize(totalSize)
+                    } else {
+                        liveSizeText = "${formatSize(totalSize)} \u22c5 ${imageUris.size} images"
                     }
+                } else {
+                    liveSizeText = ""
                 }
             }
         }
     }
 
     // Load providers & preview
-    LaunchedEffect(imageUri) {
+    LaunchedEffect(imageUris) {
         withContext(Dispatchers.IO) {
             // Load providers
             val pList = db.uploadProviderDao().getAllProvidersSync()
@@ -203,26 +239,35 @@ fun ShareScreen(
             selectedProvider = pList.find { it.isDefault } ?: pList.firstOrNull()
 
             // Decode downscaled preview
-            try {
-                val options = BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
+            val tempMap = mutableMapOf<Uri, Bitmap>()
+            for (uri in imageUris) {
+                try {
+                    val options = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        BitmapFactory.decodeStream(it, null, options)
+                    }
+                    val maxDim = kotlin.math.max(options.outWidth, options.outHeight)
+                    var sampleSize = 1
+                    if (maxDim > 1024) {
+                        sampleSize = maxDim / 1024
+                    }
+                    val decodeOptions = BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                    }
+                    context.contentResolver.openInputStream(uri)?.use {
+                        val bm = BitmapFactory.decodeStream(it, null, decodeOptions)
+                        if (bm != null) {
+                            tempMap[uri] = bm
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                context.contentResolver.openInputStream(imageUri)?.use {
-                    BitmapFactory.decodeStream(it, null, options)
-                }
-                val maxDim = kotlin.math.max(options.outWidth, options.outHeight)
-                var sampleSize = 1
-                if (maxDim > 1024) {
-                    sampleSize = maxDim / 1024
-                }
-                val decodeOptions = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                }
-                context.contentResolver.openInputStream(imageUri)?.use {
-                    previewBitmap = BitmapFactory.decodeStream(it, null, decodeOptions)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            }
+            withContext(Dispatchers.Main) {
+                previewBitmaps = tempMap
             }
         }
     }
@@ -257,35 +302,118 @@ fun ShareScreen(
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                // Image Preview (stays throughout all states)
+                // Image Preview Carousel (stays throughout all states)
                 val maxPreviewHeight = (configuration.screenHeightDp * 0.20f).dp
-                val imageRatio = previewBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: 1f
 
-                if (previewBitmap != null) {
-                    Box(
-                        modifier = Modifier
-                            .heightIn(max = maxPreviewHeight)
-                            .aspectRatio(imageRatio, matchHeightConstraintsFirst = true)
-                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            bitmap = previewBitmap!!.asImageBitmap(),
-                            contentDescription = "Image preview",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.FillBounds
-                        )
+                if (imageUris.size == 1) {
+                    val singleUri = imageUris.first()
+                    val previewBitmap = previewBitmaps[singleUri]
+                    val imageRatio = previewBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: 1f
+
+                    if (previewBitmap != null) {
+                        Box(
+                            modifier = Modifier
+                                .heightIn(max = maxPreviewHeight)
+                                .aspectRatio(imageRatio, matchHeightConstraintsFirst = true)
+                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = previewBitmap.asImageBitmap(),
+                                contentDescription = "Image preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.FillBounds
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .height(maxPreviewHeight)
+                                .aspectRatio(1f)
+                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
                     }
                 } else {
+                    val pagerState = rememberPagerState(pageCount = { imageUris.size })
                     Box(
                         modifier = Modifier
-                            .height(maxPreviewHeight)
-                            .aspectRatio(1f)
-                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
+                            .fillMaxWidth()
+                            .height(maxPreviewHeight),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator()
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            pageSpacing = 16.dp
+                        ) { page ->
+                            val uri = imageUris[page]
+                            val bitmap = previewBitmaps[uri]
+                            if (bitmap != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat(), matchHeightConstraintsFirst = true)
+                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "Image preview $page",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.FillBounds
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .aspectRatio(1f)
+                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                }
+                            }
+                        }
+
+                        // Gradient fade edges overlay
+                        // Left edge fade
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .fillMaxHeight()
+                                .width(48.dp)
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.background,
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+
+                        // Right edge fade
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(48.dp)
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            MaterialTheme.colorScheme.background
+                                        )
+                                    )
+                                )
+                        )
                     }
                 }
 
@@ -343,8 +471,8 @@ fun ShareScreen(
                             3 -> "JPEG, 80%"
                             4 -> "JPEG, 90%"
                             5 -> "JPEG, 100%"
-                            6 -> "Original"
-                            else -> "Original"
+                            6 -> if (imageUris.size == 1) "original" else "originals"
+                            else -> if (imageUris.size == 1) "original" else "originals"
                         }
 
                         Row(
@@ -417,11 +545,20 @@ fun ShareScreen(
                         ) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Uploading your image...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                            )
+                            if (imageUris.size == 1) {
+                                Text(
+                                    text = "Uploading your image...",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            } else {
+                                Text(
+                                    text = "Uploading: $succeededCount succeeded, $failedCount failed, $remainingCount remaining",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
 
@@ -528,32 +665,67 @@ fun ShareScreen(
                                     if (provider != null) {
                                         uploadState = UploadState.Uploading
                                         val targetPosition = sliderValue.toInt()
+                                        val totalToUpload = imageUris.size
+                                        succeededCount = 0
+                                        failedCount = 0
+                                        remainingCount = totalToUpload
                                         coroutineScope.launch {
-                                            try {
-                                                val result = withContext(Dispatchers.IO) {
-                                                    val processed = processedCache[targetPosition] ?: ImageProcessor.processImage(context, imageUri, targetPosition)
-                                                    val finalBytes = if (stripMetadataEnabled) {
-                                                        ImageProcessor.stripMetadata(context, processed.bytes, processed.mimeType)
-                                                    } else {
-                                                        processed.bytes
-                                                    }
-                                                    val link = Uploader.upload(provider, finalBytes, processed.mimeType, secretUrlEnabled)
-                                                    val thumb = ImageProcessor.createThumbnail(context, imageUri)
-                                                    db.historyDao().insert(
-                                                        HistoryEntry(
-                                                            thumbnailBytes = thumb,
-                                                            link = link,
-                                                            timestamp = System.currentTimeMillis()
+                                            val batchTimestamp = System.currentTimeMillis()
+                                            var lastSuccessfulLink = ""
+                                            for (uri in imageUris) {
+                                                try {
+                                                    val resultLink = withContext(Dispatchers.IO) {
+                                                        val processed = processedCache[Pair(uri, targetPosition)] ?: ImageProcessor.processImage(context, uri, targetPosition)
+                                                        val finalBytes = if (stripMetadataEnabled) {
+                                                            ImageProcessor.stripMetadata(context, processed.bytes, processed.mimeType)
+                                                        } else {
+                                                            processed.bytes
+                                                        }
+                                                        val link = Uploader.upload(provider, finalBytes, processed.mimeType, secretUrlEnabled)
+                                                        val thumb = ImageProcessor.createThumbnail(context, uri)
+                                                        db.historyDao().insert(
+                                                            HistoryEntry(
+                                                                thumbnailBytes = thumb,
+                                                                link = link,
+                                                                timestamp = batchTimestamp
+                                                            )
                                                         )
-                                                    )
-                                                    link
+                                                        link
+                                                    }
+                                                    lastSuccessfulLink = resultLink
+                                                    succeededCount++
+                                                    remainingCount--
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                    val errorMessage = "Upload failed: ${e.localizedMessage ?: "Unknown error"}"
+                                                    coroutineScope.launch {
+                                                        snackbarHostState.showSnackbar(errorMessage)
+                                                    }
+                                                    failedCount++
+                                                    remainingCount--
                                                 }
-                                                uploadResultLink = result
-                                                uploadState = UploadState.Success
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                                snackbarHostState.showSnackbar("Upload failed: ${e.localizedMessage ?: "Unknown error"}")
-                                                uploadState = UploadState.Idle
+                                            }
+
+                                            if (totalToUpload == 1) {
+                                                if (succeededCount == 1) {
+                                                    uploadResultLink = lastSuccessfulLink
+                                                    uploadState = UploadState.Success
+                                                } else {
+                                                    uploadState = UploadState.Idle
+                                                    snackbarHostState.showSnackbar("Upload failed.")
+                                                }
+                                            } else {
+                                                if (succeededCount >= 1) {
+                                                    val mainIntent = Intent(context, MainActivity::class.java).apply {
+                                                        flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                        putExtra("select_tab", "history")
+                                                    }
+                                                    context.startActivity(mainIntent)
+                                                    onFinish()
+                                                } else {
+                                                    uploadState = UploadState.Idle
+                                                    snackbarHostState.showSnackbar("All uploads failed.")
+                                                }
                                             }
                                         }
                                     } else {

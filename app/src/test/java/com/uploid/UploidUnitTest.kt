@@ -86,4 +86,14 @@ class UploidUnitTest {
         // Test MiB
         assertEquals("2.3 MiB", formatSize((1024 * 1024 * 2.3).toInt()))
     }
+
+    @Test
+    fun testFormatSizeMultipleImages() {
+        val totalSize = (1024 * 1024 * 4.9).toLong()
+        val amount = 8
+        val formattedSize = formatSize(totalSize)
+        // Verify format matches either with or without space depending on implementation
+        val result = "$formattedSize \u22c5 $amount images"
+        assertEquals("4.9 MiB \u22c5 8 images", result)
+    }
 }

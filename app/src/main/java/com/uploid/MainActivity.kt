@@ -111,15 +111,30 @@ class MainViewModelFactory(private val db: AppDatabase) : ViewModelProvider.Fact
 }
 
 class MainActivity : ComponentActivity() {
+    private var initialScreen by mutableStateOf(Screen.Settings)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDatabase.getDatabase(applicationContext)
         val viewModel = ViewModelProvider(this, MainViewModelFactory(db))[MainViewModel::class.java]
 
+        handleIntent(intent)
+
         setContent {
             UploidTheme {
-                MainScreen(viewModel)
+                MainScreen(viewModel, initialScreen)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.getStringExtra("select_tab") == "history") {
+            initialScreen = Screen.History
         }
     }
 }
@@ -130,8 +145,11 @@ enum class Screen {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
-    var currentScreen by remember { mutableStateOf(Screen.Settings) }
+fun MainScreen(viewModel: MainViewModel, initialScreen: Screen = Screen.Settings) {
+    var currentScreen by remember { mutableStateOf(initialScreen) }
+    LaunchedEffect(initialScreen) {
+        currentScreen = initialScreen
+    }
     val providers by viewModel.providers.collectAsState()
     val history by viewModel.history.collectAsState()
 
@@ -144,13 +162,19 @@ fun MainScreen(viewModel: MainViewModel) {
 
     val context = LocalContext.current
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
             val intent = Intent(context, UploadActivity::class.java).apply {
-                action = Intent.ACTION_SEND
-                type = "image/*"
-                putExtra(Intent.EXTRA_STREAM, uri)
+                if (uris.size == 1) {
+                    action = Intent.ACTION_SEND
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_STREAM, uris.first())
+                } else {
+                    action = Intent.ACTION_SEND_MULTIPLE
+                    type = "image/*"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                }
             }
             context.startActivity(intent)
         }
