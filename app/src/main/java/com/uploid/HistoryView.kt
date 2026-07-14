@@ -83,18 +83,22 @@ fun HistoryView(
                     val isNextSame = index < history.size - 1 && history[index + 1].timestamp == entry.timestamp
 
                     val shape = remember(index, history.size, isPrevSame, isNextSame) {
-                        if (isPrevSame || isNextSame) {
-                            val topRadius = if (isPrevSame) 0.dp else 24.dp
-                            val bottomRadius = if (isNextSame) 0.dp else 24.dp
-                            RoundedCornerShape(
-                                topStart = topRadius,
-                                topEnd = topRadius,
-                                bottomStart = bottomRadius,
-                                bottomEnd = bottomRadius
-                            )
-                        } else {
-                            getPixelGroupShape(index, history.size)
-                        }
+                        val isFirstInList = index == 0
+                        val isLastInList = index == history.size - 1
+                        val isSingleInList = history.size == 1
+
+                        val standardTop = if (isSingleInList || isFirstInList) 24.dp else 4.dp
+                        val standardBottom = if (isSingleInList || isLastInList) 24.dp else 4.dp
+
+                        val topStart = if (isPrevSame) 0.dp else standardTop
+                        val bottomStart = if (isNextSame) 0.dp else standardBottom
+
+                        RoundedCornerShape(
+                            topStart = topStart,
+                            topEnd = standardTop,
+                            bottomStart = bottomStart,
+                            bottomEnd = standardBottom
+                        )
                     }
 
                     val bottomPadding = if (isNextSame) 0.dp else 4.dp
