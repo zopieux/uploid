@@ -12,14 +12,14 @@ private val DarkColorScheme = darkColorScheme(
     onPrimary = Color(0xFF1C1B1F),
     background = Color(0xFF121212),
     onBackground = Color(0xFFE3E2E6),
-    surface = Color(0xFF1E1E1E),
+    surface = Color(0xFF252525),
     onSurface = Color(0xFFE3E2E6)
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF1C1B1F),
     onPrimary = Color(0xFFFFFFFF),
-    background = Color(0xFFFAFAFA),
+    background = Color(0xFFF5F5F7),
     onBackground = Color(0xFF1C1B1F),
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF1C1B1F)
@@ -37,3 +37,5 @@ fun UploidTheme(
         content = content
     )
 }
+
+val PurpleAccent = Color(0xFF7C3AED)
