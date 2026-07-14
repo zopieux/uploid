@@ -609,7 +609,7 @@ fun ShareScreen(
                                 stripMetadataEnabled = it
                                 prefs.edit().putBoolean("pref_strip_metadata", it).apply()
                             },
-                            tooltipText = "Remove all Exif and location metadata from the JPEG or PNG file before uploading."
+                            tooltipText = "Remove all EXIF / metadata from uploaded images."
                         )
 
                         ReusableToggleRow(
@@ -619,7 +619,7 @@ fun ShareScreen(
                                 secretUrlEnabled = it
                                 prefs.edit().putBoolean("pref_secret_url", it).apply()
                             },
-                            tooltipText = "Requests the upload provider for a longer URL that cannot be easily guessed."
+                            tooltipText = "Request the upload provider for a longer URL that cannot be easily guessed. Not all providers support this."
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
