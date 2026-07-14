@@ -470,42 +470,47 @@ fun ShareScreen(
                         ) { page ->
                             val uri = imageUris[page]
                             val bitmap = previewBitmaps[uri]
-                            if (bitmap != null) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .aspectRatio(
-                                            bitmap.width.toFloat() / bitmap.height.toFloat(),
-                                            matchHeightConstraintsFirst = true
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (bitmap != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .aspectRatio(
+                                                bitmap.width.toFloat() / bitmap.height.toFloat(),
+                                                matchHeightConstraintsFirst = true
+                                            )
+                                            .background(
+                                                MaterialTheme.colorScheme.onBackground.copy(
+                                                    alpha = 0.05f
+                                                ), RoundedCornerShape(8.dp)
+                                            )
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "Image preview $page",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.FillBounds
                                         )
-                                        .background(
-                                            MaterialTheme.colorScheme.onBackground.copy(
-                                                alpha = 0.05f
-                                            ), RoundedCornerShape(8.dp)
-                                        )
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Image(
-                                        bitmap = bitmap.asImageBitmap(),
-                                        contentDescription = "Image preview $page",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.FillBounds
-                                    )
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .aspectRatio(1f)
-                                        .background(
-                                            MaterialTheme.colorScheme.onBackground.copy(
-                                                alpha = 0.05f
-                                            ), RoundedCornerShape(8.dp)
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator()
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .aspectRatio(1f)
+                                            .background(
+                                                MaterialTheme.colorScheme.onBackground.copy(
+                                                    alpha = 0.05f
+                                                ), RoundedCornerShape(8.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
                                 }
                             }
                         }
