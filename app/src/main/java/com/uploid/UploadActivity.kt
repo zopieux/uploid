@@ -96,7 +96,6 @@ enum class UploadState {
     Idle, Uploading, Success
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReusableToggleRow(
     title: String,
@@ -105,18 +104,16 @@ fun ReusableToggleRow(
     tooltipText: String,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = title,
@@ -124,39 +121,22 @@ fun ReusableToggleRow(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            TooltipBox(
-                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                tooltip = {
-                    PlainTooltip(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    ) {
-                        Text(
-                            text = tooltipText,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(4.dp)
-                        )
-                    }
-                },
-                state = rememberTooltipState()
-            ) {
-                Text(
-                    text = "ⓘ",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                    modifier = Modifier.clickable { /* Required to anchor the tooltip */ }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            }
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
             )
+        }
+        Text(
+            text = tooltipText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
@@ -519,7 +499,7 @@ fun ShareScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(100.dp))
+                Spacer(modifier = Modifier.height(140.dp))
             }
 
             if (uploadState != UploadState.Uploading) {
@@ -538,7 +518,7 @@ fun ShareScreen(
                             )
                         )
                         .padding(horizontal = 24.dp)
-                        .padding(top = 24.dp, bottom = 16.dp)
+                        .padding(top = 48.dp, bottom = 16.dp)
                 ) {
                     when (uploadState) {
                         UploadState.Idle -> {
