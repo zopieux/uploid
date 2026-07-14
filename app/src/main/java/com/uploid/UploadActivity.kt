@@ -8,6 +8,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.text.TextUtils
+import android.util.TypedValue
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,46 +18,78 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import java.util.Locale
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.uploid.data.AppDatabase
 import com.uploid.data.HistoryEntry
 import com.uploid.data.UploadProvider
 import com.uploid.ui.UploidTheme
+import com.uploid.util.ImageProcessingType
 import com.uploid.util.ImageProcessor
 import com.uploid.util.Uploader
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.compose.ui.viewinterop.AndroidView
-import android.widget.TextView
-import android.text.TextUtils
-import android.util.TypedValue
-import androidx.compose.ui.graphics.toArgb
-
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
+import java.util.Locale
 
 fun formatSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
@@ -69,6 +104,19 @@ fun formatSize(bytes: Long): String {
 }
 
 fun formatSize(bytes: Int): String = formatSize(bytes.toLong())
+
+private fun sliderPositionToProcessingType(position: Int): ImageProcessingType {
+    return when (position) {
+        6 -> ImageProcessingType.Original
+        0 -> ImageProcessingType.Compress(50)
+        1 -> ImageProcessingType.Compress(60)
+        2 -> ImageProcessingType.Compress(70)
+        3 -> ImageProcessingType.Compress(80)
+        4 -> ImageProcessingType.Compress(90)
+        5 -> ImageProcessingType.Compress(100)
+        else -> ImageProcessingType.Original
+    }
+}
 
 class UploadActivity : ComponentActivity() {
 
@@ -191,7 +239,8 @@ fun ShareScreen(
 
     val currentStep = sliderValue.toInt()
     var liveSizeText by remember { mutableStateOf("...") }
-    val processedCache = remember { mutableStateMapOf<Pair<Uri, Int>, com.uploid.util.ProcessedResult>() }
+    val processedCache =
+        remember { mutableStateMapOf<Pair<Uri, ImageProcessingType>, com.uploid.util.ProcessedResult>() }
     var isSizeLargerThanOriginal by remember { mutableStateOf(false) }
 
     // Multi-upload counts
@@ -200,15 +249,20 @@ fun ShareScreen(
     var remainingCount by remember { mutableStateOf(0) }
 
     LaunchedEffect(currentStep, imageUris) {
-        val allStepCached = imageUris.all { uri -> processedCache.containsKey(Pair(uri, currentStep)) }
-        val allOriginalCached = imageUris.all { uri -> processedCache.containsKey(Pair(uri, 6)) }
+        val currentProcessingType = sliderPositionToProcessingType(currentStep)
+        val originalProcessingType = ImageProcessingType.Original
+
+        val allStepCached =
+            imageUris.all { uri -> processedCache.containsKey(Pair(uri, currentProcessingType)) }
+        val allOriginalCached =
+            imageUris.all { uri -> processedCache.containsKey(Pair(uri, originalProcessingType)) }
 
         if (allStepCached && allOriginalCached) {
             val totalSize = imageUris.sumOf { uri ->
-                processedCache[Pair(uri, currentStep)]?.bytes?.size?.toLong() ?: 0L
+                processedCache[Pair(uri, currentProcessingType)]?.bytes?.size?.toLong() ?: 0L
             }
             val originalTotalSize = imageUris.sumOf { uri ->
-                processedCache[Pair(uri, 6)]?.bytes?.size?.toLong() ?: 0L
+                processedCache[Pair(uri, originalProcessingType)]?.bytes?.size?.toLong() ?: 0L
             }
             isSizeLargerThanOriginal = currentStep < 6 && totalSize > originalTotalSize
 
@@ -220,11 +274,12 @@ fun ShareScreen(
                 var originalTotalSize = 0L
                 var allSucceeded = true
                 for (uri in imageUris) {
-                    var processed = processedCache[Pair(uri, currentStep)]
+                    var processed = processedCache[Pair(uri, currentProcessingType)]
                     if (processed == null) {
                         try {
-                            processed = ImageProcessor.processImage(context, uri, currentStep)
-                            processedCache[Pair(uri, currentStep)] = processed
+                            processed =
+                                ImageProcessor.processImage(context, uri, currentProcessingType)
+                            processedCache[Pair(uri, currentProcessingType)] = processed
                         } catch (e: Exception) {
                             e.printStackTrace()
                             allSucceeded = false
@@ -234,11 +289,12 @@ fun ShareScreen(
                         totalSize += processed.bytes.size.toLong()
                     }
 
-                    var originalProcessed = processedCache[Pair(uri, 6)]
+                    var originalProcessed = processedCache[Pair(uri, originalProcessingType)]
                     if (originalProcessed == null) {
                         try {
-                            originalProcessed = ImageProcessor.processImage(context, uri, 6)
-                            processedCache[Pair(uri, 6)] = originalProcessed
+                            originalProcessed =
+                                ImageProcessor.processImage(context, uri, originalProcessingType)
+                            processedCache[Pair(uri, originalProcessingType)] = originalProcessed
                         } catch (e: Exception) {
                             e.printStackTrace()
                             allSucceeded = false
@@ -346,7 +402,10 @@ fun ShareScreen(
                             modifier = Modifier
                                 .heightIn(max = maxPreviewHeight)
                                 .aspectRatio(imageRatio, matchHeightConstraintsFirst = true)
-                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                .background(
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
+                                    RoundedCornerShape(8.dp)
+                                )
                                 .clip(RoundedCornerShape(8.dp)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -362,7 +421,10 @@ fun ShareScreen(
                             modifier = Modifier
                                 .height(maxPreviewHeight)
                                 .aspectRatio(1f)
-                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
+                                .background(
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f),
+                                    RoundedCornerShape(8.dp)
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator()
@@ -388,8 +450,15 @@ fun ShareScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
-                                        .aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat(), matchHeightConstraintsFirst = true)
-                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                        .aspectRatio(
+                                            bitmap.width.toFloat() / bitmap.height.toFloat(),
+                                            matchHeightConstraintsFirst = true
+                                        )
+                                        .background(
+                                            MaterialTheme.colorScheme.onBackground.copy(
+                                                alpha = 0.05f
+                                            ), RoundedCornerShape(8.dp)
+                                        )
                                         .clip(RoundedCornerShape(8.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -405,7 +474,11 @@ fun ShareScreen(
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .aspectRatio(1f)
-                                        .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f), RoundedCornerShape(8.dp)),
+                                        .background(
+                                            MaterialTheme.colorScheme.onBackground.copy(
+                                                alpha = 0.05f
+                                            ), RoundedCornerShape(8.dp)
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     CircularProgressIndicator()
@@ -626,7 +699,9 @@ fun ShareScreen(
 
                     UploadState.Uploading -> {
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             CircularProgressIndicator()
@@ -678,7 +753,11 @@ fun ShareScreen(
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(0.5.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                    .border(
+                                        0.5.dp,
+                                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f),
+                                        RoundedCornerShape(8.dp)
+                                    )
                                     .padding(16.dp)
                             )
 
@@ -761,7 +840,17 @@ fun ShareScreen(
                                             for (uri in imageUris) {
                                                 try {
                                                     val resultLink = withContext(Dispatchers.IO) {
-                                                        val processed = processedCache[Pair(uri, targetPosition)] ?: ImageProcessor.processImage(context, uri, targetPosition)
+                                                        val targetType =
+                                                            sliderPositionToProcessingType(
+                                                                targetPosition
+                                                            )
+                                                        val processed =
+                                                            processedCache[Pair(uri, targetType)]
+                                                                ?: ImageProcessor.processImage(
+                                                                    context,
+                                                                    uri,
+                                                                    targetType
+                                                                )
                                                         val finalBytes = if (stripMetadataEnabled) {
                                                             ImageProcessor.stripMetadata(context, processed.bytes, processed.mimeType)
                                                         } else {

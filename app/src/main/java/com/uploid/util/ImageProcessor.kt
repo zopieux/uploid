@@ -5,11 +5,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.graphics.scale
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
-
 import androidx.exifinterface.media.ExifInterface
+import java.io.ByteArrayOutputStream
 import java.io.File
+
+sealed interface ImageProcessingType {
+    object Original : ImageProcessingType
+    data class Compress(val quality: Int) : ImageProcessingType
+}
 
 object ImageProcessor {
 
@@ -63,25 +66,15 @@ object ImageProcessor {
         }
     }
 
-    /**
-     * Slider positions:
-     * 0: Original
-     * 1: High (Quality 100)
-     * 2: Medium-High (Quality 90)
-     * 3: Medium (Quality 80)
-     * 4: Medium-Low (Quality 70)
-     * 5: Low (Quality 60)
-     * 6: Very Low (Quality 50)
-     */
     fun processImage(
         context: Context,
         uri: Uri,
-        sliderPosition: Int
+        processingType: ImageProcessingType
     ): ProcessedResult {
         val contentResolver = context.contentResolver
 
-        // 1. If Original (position 6), keep as is
-        if (sliderPosition == 6) {
+        // 1. If Original, keep as is
+        if (processingType is ImageProcessingType.Original) {
             val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: throw IllegalArgumentException("Cannot read image URI")
             // Resolve mimetype or fallback to jpeg
@@ -89,7 +82,12 @@ object ImageProcessor {
             return ProcessedResult(bytes, mimeType)
         }
 
-        // 2. Compression levels 0 to 5
+        // 2. Compress image using the specified quality
+        val quality = when (processingType) {
+            is ImageProcessingType.Compress -> processingType.quality
+            else -> 100
+        }
+
         val inputStream = contentResolver.openInputStream(uri)
             ?: throw IllegalArgumentException("Cannot open image input stream")
         val originalBitmap = BitmapFactory.decodeStream(inputStream)
@@ -113,17 +111,6 @@ object ImageProcessor {
             originalBitmap.scale(targetW, targetH, filter = true)
         } else {
             originalBitmap
-        }
-
-        // Determine JPEG quality based on slider (0 to 5)
-        val quality = when (sliderPosition) {
-            0 -> 50
-            1 -> 60
-            2 -> 70
-            3 -> 80
-            4 -> 90
-            5 -> 100
-            else -> 100
         }
 
         val outputStream = ByteArrayOutputStream()

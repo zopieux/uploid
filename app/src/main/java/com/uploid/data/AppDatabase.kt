@@ -25,7 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "uploid_database"
                 )
-                .addCallback(object : RoomDatabase.Callback() {
+                    .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
                         // Prepopulate default providers on a background scope
