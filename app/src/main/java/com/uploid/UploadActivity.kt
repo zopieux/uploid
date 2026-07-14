@@ -537,53 +537,54 @@ fun ShareScreen(
                                         strokeWidth = 2.dp,
                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                                     )
-                                } else {
-                                    if (isSizeLargerThanOriginal) {
-                                        val warningColor = Color(0xFFD32F2F) // Non-aggressive red (Material 500/700 style)
-                                        val tooltipMessage = "This compression level is counter-productive and a lower quality (or original) should be picked."
-                                        TooltipBox(
-                                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                                            tooltip = {
-                                                PlainTooltip {
-                                                    Text(text = tooltipMessage)
-                                                }
-                                            },
-                                            state = rememberTooltipState()
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Warning,
-                                                    contentDescription = "Warning: size larger than original",
-                                                    tint = warningColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Text(
-                                                    text = liveSizeText,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = warningColor,
-                                                    fontWeight = FontWeight.SemiBold
-                                                )
+                                } else if (isSizeLargerThanOriginal) {
+                                    val warningColor = Color(0xFFD32F2F) // Non-aggressive red (Material 500/700 style)
+                                    val tooltipMessage = "This compression level is counter-productive and a lower quality (or original) should be picked."
+                                    TooltipBox(
+                                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                        tooltip = {
+                                            PlainTooltip {
+                                                Text(text = tooltipMessage)
                                             }
+                                        },
+                                        state = rememberTooltipState(),
+                                        modifier = Modifier.alignByBaseline()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Warning,
+                                                contentDescription = "Warning: size larger than original",
+                                                tint = warningColor,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = liveSizeText,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = warningColor,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
                                         }
-                                    } else {
-                                        Text(
-                                            text = liveSizeText,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                            fontWeight = FontWeight.SemiBold
-                                        )
                                     }
+                                } else {
+                                    Text(
+                                        text = liveSizeText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.alignByBaseline()
+                                    )
                                 }
 
                                 if (imageUris.size > 1) {
                                     Text(
-                                        text = " \u22c5 ${imageUris.size} images",
+                                        text = "\u22c5 ${imageUris.size} images",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.alignByBaseline()
                                     )
                                 }
                             }
