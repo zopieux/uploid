@@ -22,8 +22,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,9 +79,12 @@ fun HistoryView(
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 itemsIndexed(history, key = { _, entry -> entry.id }) { index, entry ->
-                    val bitmap = remember(entry.thumbnailBytes) {
-                        BitmapFactory.decodeByteArray(entry.thumbnailBytes, 0, entry.thumbnailBytes.size)?.asImageBitmap()
+                    val bitmapState = produceState<ImageBitmap?>(initialValue = null, entry.thumbnailBytes) {
+                        value = withContext(Dispatchers.Default) {
+                            BitmapFactory.decodeByteArray(entry.thumbnailBytes, 0, entry.thumbnailBytes.size)?.asImageBitmap()
+                        }
                     }
+                    val bitmap = bitmapState.value
                     val isPrevSame = index > 0 && history[index - 1].timestamp == entry.timestamp
                     val isNextSame = index < history.size - 1 && history[index + 1].timestamp == entry.timestamp
 

@@ -87,6 +87,9 @@ import com.uploid.util.ImageProcessingType
 import com.uploid.util.ImageProcessor
 import com.uploid.util.Uploader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -270,42 +273,63 @@ fun ShareScreen(
         } else {
             liveSizeText = "..."
             withContext(Dispatchers.Default) {
+                var allSucceeded = true
+                val results = coroutineScope {
+                    imageUris.map { uri ->
+                        async {
+                            var processed = processedCache[Pair(uri, currentProcessingType)]
+                            var originalProcessed = processedCache[Pair(uri, originalProcessingType)]
+                            var success = true
+
+                            if (processed == null) {
+                                try {
+                                    processed = ImageProcessor.processImage(context, uri, currentProcessingType)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    success = false
+                                }
+                            }
+
+                            if (originalProcessed == null) {
+                                try {
+                                    originalProcessed = ImageProcessor.processImage(context, uri, originalProcessingType)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    success = false
+                                }
+                            }
+
+                            Triple(uri, processed, originalProcessed) to success
+                        }
+                    }.awaitAll()
+                }
+
                 var totalSize = 0L
                 var originalTotalSize = 0L
-                var allSucceeded = true
-                for (uri in imageUris) {
-                    var processed = processedCache[Pair(uri, currentProcessingType)]
-                    if (processed == null) {
-                        try {
-                            processed =
-                                ImageProcessor.processImage(context, uri, currentProcessingType)
-                            processedCache[Pair(uri, currentProcessingType)] = processed
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            allSucceeded = false
-                        }
-                    }
-                    if (processed != null) {
-                        totalSize += processed.bytes.size.toLong()
-                    }
+                val updatesToCache = mutableListOf<Pair<Pair<Uri, ImageProcessingType>, com.uploid.util.ProcessedResult>>()
 
-                    var originalProcessed = processedCache[Pair(uri, originalProcessingType)]
-                    if (originalProcessed == null) {
-                        try {
-                            originalProcessed =
-                                ImageProcessor.processImage(context, uri, originalProcessingType)
-                            processedCache[Pair(uri, originalProcessingType)] = originalProcessed
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            allSucceeded = false
-                        }
+                for ((triple, success) in results) {
+                    val (uri, processed, originalProcessed) = triple
+                    if (!success || processed == null || originalProcessed == null) {
+                        allSucceeded = false
+                        break
                     }
-                    if (originalProcessed != null) {
-                        originalTotalSize += originalProcessed.bytes.size.toLong()
+                    totalSize += processed.bytes.size.toLong()
+                    originalTotalSize += originalProcessed.bytes.size.toLong()
+
+                    if (!processedCache.containsKey(Pair(uri, currentProcessingType))) {
+                        updatesToCache.add(Pair(uri, currentProcessingType) to processed)
+                    }
+                    if (!processedCache.containsKey(Pair(uri, originalProcessingType))) {
+                        updatesToCache.add(Pair(uri, originalProcessingType) to originalProcessed)
                     }
                 }
+
                 withContext(Dispatchers.Main) {
                     if (allSucceeded) {
+                        updatesToCache.forEach { (key, value) ->
+                            processedCache[key] = value
+                        }
                         isSizeLargerThanOriginal = currentStep < 6 && totalSize > originalTotalSize
                         liveSizeText = formatSize(totalSize)
                     } else {
@@ -837,9 +861,10 @@ fun ShareScreen(
                                         coroutineScope.launch {
                                             val batchTimestamp = System.currentTimeMillis()
                                             var lastSuccessfulLink = ""
+                                            val accumulatedEntries = mutableListOf<HistoryEntry>()
                                             for (uri in imageUris) {
                                                 try {
-                                                    val resultLink = withContext(Dispatchers.IO) {
+                                                    val (resultLink, entry) = withContext(Dispatchers.IO) {
                                                         val targetType =
                                                             sliderPositionToProcessingType(
                                                                 targetPosition
@@ -858,15 +883,14 @@ fun ShareScreen(
                                                         }
                                                         val link = Uploader.upload(provider, finalBytes, processed.mimeType, secretUrlEnabled)
                                                         val thumb = ImageProcessor.createThumbnail(context, uri)
-                                                        db.historyDao().insert(
-                                                            HistoryEntry(
-                                                                thumbnailBytes = thumb,
-                                                                link = link,
-                                                                timestamp = batchTimestamp
-                                                            )
+                                                        val entry = HistoryEntry(
+                                                            thumbnailBytes = thumb,
+                                                            link = link,
+                                                            timestamp = batchTimestamp
                                                         )
-                                                        link
+                                                        Pair(link, entry)
                                                     }
+                                                    accumulatedEntries.add(entry)
                                                     lastSuccessfulLink = resultLink
                                                     succeededCount++
                                                     remainingCount--
@@ -878,6 +902,12 @@ fun ShareScreen(
                                                     }
                                                     failedCount++
                                                     remainingCount--
+                                                }
+                                            }
+
+                                            if (accumulatedEntries.isNotEmpty()) {
+                                                withContext(Dispatchers.IO) {
+                                                    db.historyDao().insertAll(accumulatedEntries)
                                                 }
                                             }
 

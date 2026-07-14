@@ -16,6 +16,25 @@ sealed interface ImageProcessingType {
 
 object ImageProcessor {
 
+    // Lazily-initialized list of ExifInterface tag names collected once via reflection
+    private val exifTags: List<String> by lazy {
+        val tags = mutableListOf<String>()
+        val fields = ExifInterface::class.java.fields
+        for (field in fields) {
+            if (field.name.startsWith("TAG_") && field.type == String::class.java) {
+                try {
+                    val tagName = field.get(null) as? String
+                    if (tagName != null) {
+                        tags.add(tagName)
+                    }
+                } catch (e: Exception) {
+                    // Ignore reflection/unsupported operations
+                }
+            }
+        }
+        tags
+    }
+
     /**
      * Strips EXIF metadata from JPEG or PNG byte arrays using the well-known
      * AndroidX ExifInterface library. Retains layout/rendering-essential tags
@@ -30,25 +49,15 @@ object ImageProcessor {
             tempFile.writeBytes(bytes)
             val exifInterface = ExifInterface(tempFile.absolutePath)
 
-            // Collect all TAG_ fields via reflection to strip them systematically
-            val fields = ExifInterface::class.java.fields
-            for (field in fields) {
-                if (field.name.startsWith("TAG_") && field.type == String::class.java) {
-                    try {
-                        val tagName = field.get(null) as? String
-                        if (tagName != null) {
-                            // Retain orientation and dimensions to prevent layout/display issues
-                            if (tagName != ExifInterface.TAG_IMAGE_WIDTH &&
-                                tagName != ExifInterface.TAG_IMAGE_LENGTH &&
-                                tagName != ExifInterface.TAG_ORIENTATION &&
-                                tagName != ExifInterface.TAG_PIXEL_X_DIMENSION &&
-                                tagName != ExifInterface.TAG_PIXEL_Y_DIMENSION) {
-                                exifInterface.setAttribute(tagName, null)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Ignore reflection/unsupported operations
-                    }
+            // Use the cached exifTags instead of performing reflection each time
+            for (tagName in exifTags) {
+                // Retain orientation and dimensions to prevent layout/display issues
+                if (tagName != ExifInterface.TAG_IMAGE_WIDTH &&
+                    tagName != ExifInterface.TAG_IMAGE_LENGTH &&
+                    tagName != ExifInterface.TAG_ORIENTATION &&
+                    tagName != ExifInterface.TAG_PIXEL_X_DIMENSION &&
+                    tagName != ExifInterface.TAG_PIXEL_Y_DIMENSION) {
+                    exifInterface.setAttribute(tagName, null)
                 }
             }
             // Explicitly ensure GPS attributes are removed

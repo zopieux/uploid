@@ -11,6 +11,9 @@ interface HistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRaw(entry: HistoryEntry): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllRaw(entries: List<HistoryEntry>): List<Long>
+
     @Query("DELETE FROM history_entries WHERE id NOT IN (SELECT id FROM history_entries ORDER BY timestamp DESC LIMIT 1000)")
     suspend fun pruneHistory()
 
@@ -19,6 +22,13 @@ interface HistoryDao {
         val id = insertRaw(entry)
         pruneHistory()
         return id
+    }
+
+    @Transaction
+    suspend fun insertAll(entries: List<HistoryEntry>): List<Long> {
+        val ids = insertAllRaw(entries)
+        pruneHistory()
+        return ids
     }
 
     @Query("DELETE FROM history_entries")
