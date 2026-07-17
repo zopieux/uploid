@@ -250,7 +250,7 @@ fun MainScreen(viewModel: MainViewModel, initialScreen: Screen = Screen.Settings
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "History",
+                                text = "Past uploads",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = if (currentScreen == Screen.History) FontWeight.Bold else FontWeight.Normal,
                                 color = if (currentScreen == Screen.History) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
