@@ -85,6 +85,7 @@ import com.uploid.data.UploadProvider
 import com.uploid.ui.UploidTheme
 import com.uploid.util.ImageProcessingType
 import com.uploid.util.ImageProcessor
+import com.uploid.util.ImageSizeType
 import com.uploid.util.Uploader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -118,6 +119,19 @@ private fun sliderPositionToProcessingType(position: Int): ImageProcessingType {
         4 -> ImageProcessingType.Compress(90)
         5 -> ImageProcessingType.Compress(100)
         else -> ImageProcessingType.Original
+    }
+}
+
+private fun sizeSliderPositionToSizeType(position: Int): ImageSizeType {
+    return when (position) {
+        0 -> ImageSizeType.Resized(512)
+        1 -> ImageSizeType.Resized(1024)
+        2 -> ImageSizeType.Resized(1600)
+        3 -> ImageSizeType.Resized(2048)
+        4 -> ImageSizeType.Resized(2800)
+        5 -> ImageSizeType.Resized(4096)
+        6 -> ImageSizeType.Original
+        else -> ImageSizeType.Original
     }
 }
 
@@ -230,8 +244,11 @@ fun ShareScreen(
     var uploadState by remember { mutableStateOf(UploadState.Idle) }
     var uploadResultLink by remember { mutableStateOf("") }
 
-    // Slider position: 0 to 6 (snappy)
-    var sliderValue by remember { mutableStateOf(6f) }
+    // Size Slider position: 0 to 6 (snappy), default is 6 (original)
+    var sizeSliderValue by remember { mutableStateOf(6f) }
+
+    // Quality Slider position: 0 to 6 (snappy), default is 6 (original)
+    var qualitySliderValue by remember { mutableStateOf(6f) }
 
     val prefs = remember { context.getSharedPreferences("uploid_prefs", Context.MODE_PRIVATE) }
     var stripMetadataEnabled by remember { mutableStateOf(prefs.getBoolean("pref_strip_metadata", true)) }
@@ -239,11 +256,11 @@ fun ShareScreen(
 
     // Load downscaled preview bitmaps safely for all URIs
     var previewBitmaps by remember { mutableStateOf<Map<Uri, Bitmap>>(emptyMap()) }
+    var originalDimensions by remember { mutableStateOf<Map<Uri, Pair<Int, Int>>>(emptyMap()) }
 
-    val currentStep = sliderValue.toInt()
     var liveSizeText by remember { mutableStateOf("...") }
     val processedCache =
-        remember { mutableStateMapOf<Pair<Uri, ImageProcessingType>, com.uploid.util.ProcessedResult>() }
+        remember { mutableStateMapOf<Triple<Uri, ImageSizeType, ImageProcessingType>, com.uploid.util.ProcessedResult>() }
     var isSizeLargerThanOriginal by remember { mutableStateOf(false) }
 
     // Multi-upload counts
@@ -251,23 +268,28 @@ fun ShareScreen(
     var failedCount by remember { mutableStateOf(0) }
     var remainingCount by remember { mutableStateOf(0) }
 
-    LaunchedEffect(currentStep, imageUris) {
-        val currentProcessingType = sliderPositionToProcessingType(currentStep)
+    LaunchedEffect(qualitySliderValue, sizeSliderValue, imageUris) {
+        val currentSizeType = sizeSliderPositionToSizeType(sizeSliderValue.toInt())
+        val currentProcessingType = sliderPositionToProcessingType(qualitySliderValue.toInt())
+
+        val originalSizeType = ImageSizeType.Original
         val originalProcessingType = ImageProcessingType.Original
 
+        val isCurrentOriginal = currentSizeType is ImageSizeType.Original && currentProcessingType is ImageProcessingType.Original
+
         val allStepCached =
-            imageUris.all { uri -> processedCache.containsKey(Pair(uri, currentProcessingType)) }
+            imageUris.all { uri -> processedCache.containsKey(Triple(uri, currentSizeType, currentProcessingType)) }
         val allOriginalCached =
-            imageUris.all { uri -> processedCache.containsKey(Pair(uri, originalProcessingType)) }
+            imageUris.all { uri -> processedCache.containsKey(Triple(uri, originalSizeType, originalProcessingType)) }
 
         if (allStepCached && allOriginalCached) {
             val totalSize = imageUris.sumOf { uri ->
-                processedCache[Pair(uri, currentProcessingType)]?.bytes?.size?.toLong() ?: 0L
+                processedCache[Triple(uri, currentSizeType, currentProcessingType)]?.bytes?.size?.toLong() ?: 0L
             }
             val originalTotalSize = imageUris.sumOf { uri ->
-                processedCache[Pair(uri, originalProcessingType)]?.bytes?.size?.toLong() ?: 0L
+                processedCache[Triple(uri, originalSizeType, originalProcessingType)]?.bytes?.size?.toLong() ?: 0L
             }
-            isSizeLargerThanOriginal = currentStep < 6 && totalSize > originalTotalSize
+            isSizeLargerThanOriginal = !isCurrentOriginal && totalSize > originalTotalSize
 
             liveSizeText = formatSize(totalSize)
         } else {
@@ -277,13 +299,13 @@ fun ShareScreen(
                 val results = coroutineScope {
                     imageUris.map { uri ->
                         async {
-                            var processed = processedCache[Pair(uri, currentProcessingType)]
-                            var originalProcessed = processedCache[Pair(uri, originalProcessingType)]
+                            var processed = processedCache[Triple(uri, currentSizeType, currentProcessingType)]
+                            var originalProcessed = processedCache[Triple(uri, originalSizeType, originalProcessingType)]
                             var success = true
 
                             if (processed == null) {
                                 try {
-                                    processed = ImageProcessor.processImage(context, uri, currentProcessingType)
+                                    processed = ImageProcessor.processImage(context, uri, currentSizeType, currentProcessingType)
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     success = false
@@ -292,7 +314,7 @@ fun ShareScreen(
 
                             if (originalProcessed == null) {
                                 try {
-                                    originalProcessed = ImageProcessor.processImage(context, uri, originalProcessingType)
+                                    originalProcessed = ImageProcessor.processImage(context, uri, originalSizeType, originalProcessingType)
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     success = false
@@ -306,7 +328,7 @@ fun ShareScreen(
 
                 var totalSize = 0L
                 var originalTotalSize = 0L
-                val updatesToCache = mutableListOf<Pair<Pair<Uri, ImageProcessingType>, com.uploid.util.ProcessedResult>>()
+                val updatesToCache = mutableListOf<Pair<Triple<Uri, ImageSizeType, ImageProcessingType>, com.uploid.util.ProcessedResult>>()
 
                 for ((triple, success) in results) {
                     val (uri, processed, originalProcessed) = triple
@@ -317,11 +339,11 @@ fun ShareScreen(
                     totalSize += processed.bytes.size.toLong()
                     originalTotalSize += originalProcessed.bytes.size.toLong()
 
-                    if (!processedCache.containsKey(Pair(uri, currentProcessingType))) {
-                        updatesToCache.add(Pair(uri, currentProcessingType) to processed)
+                    if (!processedCache.containsKey(Triple(uri, currentSizeType, currentProcessingType))) {
+                        updatesToCache.add(Triple(uri, currentSizeType, currentProcessingType) to processed)
                     }
-                    if (!processedCache.containsKey(Pair(uri, originalProcessingType))) {
-                        updatesToCache.add(Pair(uri, originalProcessingType) to originalProcessed)
+                    if (!processedCache.containsKey(Triple(uri, originalSizeType, originalProcessingType))) {
+                        updatesToCache.add(Triple(uri, originalSizeType, originalProcessingType) to originalProcessed)
                     }
                 }
 
@@ -330,7 +352,7 @@ fun ShareScreen(
                         updatesToCache.forEach { (key, value) ->
                             processedCache[key] = value
                         }
-                        isSizeLargerThanOriginal = currentStep < 6 && totalSize > originalTotalSize
+                        isSizeLargerThanOriginal = !isCurrentOriginal && totalSize > originalTotalSize
                         liveSizeText = formatSize(totalSize)
                     } else {
                         liveSizeText = ""
@@ -349,8 +371,9 @@ fun ShareScreen(
             providers = pList
             selectedProvider = pList.find { it.isDefault } ?: pList.firstOrNull()
 
-            // Decode downscaled preview
+            // Decode downscaled preview and original dimensions
             val tempMap = mutableMapOf<Uri, Bitmap>()
+            val tempDims = mutableMapOf<Uri, Pair<Int, Int>>()
             for (uri in imageUris) {
                 try {
                     val options = BitmapFactory.Options().apply {
@@ -359,6 +382,10 @@ fun ShareScreen(
                     context.contentResolver.openInputStream(uri)?.use {
                         BitmapFactory.decodeStream(it, null, options)
                     }
+                    if (options.outWidth > 0 && options.outHeight > 0) {
+                        tempDims[uri] = Pair(options.outWidth, options.outHeight)
+                    }
+
                     val maxDim = kotlin.math.max(options.outWidth, options.outHeight)
                     var sampleSize = 1
                     if (maxDim > 1024) {
@@ -379,6 +406,7 @@ fun ShareScreen(
             }
             withContext(Dispatchers.Main) {
                 previewBitmaps = tempMap
+                originalDimensions = tempDims
             }
         }
     }
@@ -596,8 +624,84 @@ fun ShareScreen(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
+                        // Size Row
+                        val sizeLabel = when (sizeSliderValue.toInt()) {
+                            0 -> "512px"
+                            1 -> "1024px"
+                            2 -> "1600px"
+                            3 -> "2048px"
+                            4 -> "2800px"
+                            5 -> "4096px"
+                            6 -> "original"
+                            else -> "original"
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "Size",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "($sizeLabel)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (imageUris.size == 1) {
+                                val origDim = originalDimensions[imageUris.first()]
+                                val sizeText = if (origDim != null) {
+                                    val (w, h) = origDim
+                                    val currentSizeStep = sizeSliderValue.toInt()
+                                    val sizeType = sizeSliderPositionToSizeType(currentSizeStep)
+                                    val (targetW, targetH) = if (sizeType is ImageSizeType.Resized) {
+                                        val maxDim = sizeType.maxDim
+                                        val srcMax = kotlin.math.max(w, h)
+                                        if (srcMax > maxDim) {
+                                            val scale = maxDim.toDouble() / srcMax
+                                            Pair((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
+                                        } else {
+                                            Pair(w, h)
+                                        }
+                                    } else {
+                                        Pair(w, h)
+                                    }
+                                    "${targetW} \u00d7 ${targetH}"
+                                } else {
+                                    ""
+                                }
+                                Text(
+                                    text = sizeText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Slider(
+                            value = sizeSliderValue,
+                            onValueChange = { sizeSliderValue = it.coerceIn(0f, 6f) },
+                            valueRange = 0f..6f,
+                            steps = 5,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         // Compact single-row headers for Quality
-                        val label = when (sliderValue.toInt()) {
+                        val label = when (qualitySliderValue.toInt()) {
                             0 -> "JPEG, 50%"
                             1 -> "JPEG, 60%"
                             2 -> "JPEG, 70%"
@@ -695,14 +799,14 @@ fun ShareScreen(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Slider(
-                            value = sliderValue,
-                            onValueChange = { sliderValue = it.coerceIn(0f, 6f) },
+                            value = qualitySliderValue,
+                            onValueChange = { qualitySliderValue = it.coerceIn(0f, 6f) },
                             valueRange = 0f..6f,
                             steps = 5,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         ReusableToggleRow(
                             title = "Strip metadata",
@@ -858,7 +962,8 @@ fun ShareScreen(
                                     val provider = selectedProvider
                                     if (provider != null) {
                                         uploadState = UploadState.Uploading
-                                        val targetPosition = sliderValue.toInt()
+                                        val targetSizePosition = sizeSliderValue.toInt()
+                                        val targetQualityPosition = qualitySliderValue.toInt()
                                         val totalToUpload = imageUris.size
                                         succeededCount = 0
                                         failedCount = 0
@@ -870,16 +975,21 @@ fun ShareScreen(
                                             for (uri in imageUris) {
                                                 try {
                                                     val (resultLink, entry) = withContext(Dispatchers.IO) {
-                                                        val targetType =
+                                                        val targetSizeType =
+                                                            sizeSliderPositionToSizeType(
+                                                                targetSizePosition
+                                                            )
+                                                        val targetProcessingType =
                                                             sliderPositionToProcessingType(
-                                                                targetPosition
+                                                                targetQualityPosition
                                                             )
                                                         val processed =
-                                                            processedCache[Pair(uri, targetType)]
+                                                            processedCache[Triple(uri, targetSizeType, targetProcessingType)]
                                                                 ?: ImageProcessor.processImage(
                                                                     context,
                                                                     uri,
-                                                                    targetType
+                                                                    targetSizeType,
+                                                                    targetProcessingType
                                                                 )
                                                         val finalBytes = if (stripMetadataEnabled) {
                                                             ImageProcessor.stripMetadata(context, processed.bytes, processed.mimeType)

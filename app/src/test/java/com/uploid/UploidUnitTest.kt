@@ -1,6 +1,8 @@
 package com.uploid
 
 import com.uploid.data.UploadProvider
+import com.uploid.util.ImageSizeType
+import com.uploid.util.ImageProcessingType
 import okhttp3.Credentials
 import org.junit.Assert.*
 import org.junit.Test
@@ -95,5 +97,25 @@ class UploidUnitTest {
         // Verify format matches either with or without space depending on implementation
         val result = "$formattedSize \u22c5 $amount images"
         assertEquals("4.9 MiB \u22c5 8 images", result)
+    }
+
+    @Test
+    fun testImageSizeTypeHierarchy() {
+        val original: ImageSizeType = ImageSizeType.Original
+        val resized: ImageSizeType = ImageSizeType.Resized(1024)
+
+        assertEquals(ImageSizeType.Original, original)
+        assertTrue(resized is ImageSizeType.Resized)
+        assertEquals(1024, (resized as ImageSizeType.Resized).maxDim)
+    }
+
+    @Test
+    fun testImageProcessingTypeHierarchy() {
+        val original: ImageProcessingType = ImageProcessingType.Original
+        val compressed: ImageProcessingType = ImageProcessingType.Compress(80)
+
+        assertEquals(ImageProcessingType.Original, original)
+        assertTrue(compressed is ImageProcessingType.Compress)
+        assertEquals(80, (compressed as ImageProcessingType.Compress).quality)
     }
 }
