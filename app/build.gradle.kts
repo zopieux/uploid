@@ -54,6 +54,10 @@ android {
             useLegacyPackaging = true
         }
     }
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
 }
 
 dependencies {
