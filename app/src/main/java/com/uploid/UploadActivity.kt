@@ -143,8 +143,18 @@ class UploadActivity : ComponentActivity() {
         val intentUris = when (intent.action) {
             Intent.ACTION_SEND -> {
                 val uri = if (intent.type?.startsWith("image/") == true) {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    val parcelable = try {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val str = try {
+                        intent.getStringExtra(Intent.EXTRA_STREAM)?.let { Uri.parse(it) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    parcelable ?: str ?: intent.data
                 } else {
                     null
                 }
@@ -152,8 +162,35 @@ class UploadActivity : ComponentActivity() {
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 val list = if (intent.type?.startsWith("image/") == true) {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    val parcelables = try {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val stringArray = try {
+                        intent.getStringArrayExtra(Intent.EXTRA_STREAM)?.map { Uri.parse(it) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val strings = try {
+                        intent.getStringArrayListExtra(Intent.EXTRA_STREAM)?.map { Uri.parse(it) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val singleCsv = try {
+                        intent.getStringExtra(Intent.EXTRA_STREAM)?.split(",")?.map { Uri.parse(it.trim()) }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val clip = try {
+                        intent.clipData?.let { clip ->
+                            (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    parcelables ?: stringArray ?: strings ?: singleCsv ?: clip
                 } else {
                     null
                 }
@@ -244,11 +281,15 @@ fun ShareScreen(
     var uploadState by remember { mutableStateOf(UploadState.Idle) }
     var uploadResultLink by remember { mutableStateOf("") }
 
+    val activity = context as? android.app.Activity
+    val initialSize = activity?.intent?.getFloatExtra("size_slider", 6f) ?: 6f
+    val initialQuality = activity?.intent?.getFloatExtra("quality_slider", 6f) ?: 6f
+
     // Size Slider position: 0 to 6 (snappy), default is 6 (original)
-    var sizeSliderValue by remember { mutableStateOf(6f) }
+    var sizeSliderValue by remember { mutableStateOf(initialSize) }
 
     // Quality Slider position: 0 to 6 (snappy), default is 6 (original)
-    var qualitySliderValue by remember { mutableStateOf(6f) }
+    var qualitySliderValue by remember { mutableStateOf(initialQuality) }
 
     val prefs = remember { context.getSharedPreferences("uploid_prefs", Context.MODE_PRIVATE) }
     var stripMetadataEnabled by remember { mutableStateOf(prefs.getBoolean("pref_strip_metadata", true)) }
@@ -379,7 +420,7 @@ fun ShareScreen(
                     val options = BitmapFactory.Options().apply {
                         inJustDecodeBounds = true
                     }
-                    context.contentResolver.openInputStream(uri)?.use {
+                    ImageProcessor.openStream(context, uri)?.use {
                         BitmapFactory.decodeStream(it, null, options)
                     }
                     if (options.outWidth > 0 && options.outHeight > 0) {
@@ -394,7 +435,7 @@ fun ShareScreen(
                     val decodeOptions = BitmapFactory.Options().apply {
                         inSampleSize = sampleSize
                     }
-                    context.contentResolver.openInputStream(uri)?.use {
+                    ImageProcessor.openStream(context, uri)?.use {
                         val bm = BitmapFactory.decodeStream(it, null, decodeOptions)
                         if (bm != null) {
                             tempMap[uri] = bm

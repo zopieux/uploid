@@ -8,6 +8,8 @@ import androidx.core.graphics.scale
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
 
 sealed interface ImageProcessingType {
     object Original : ImageProcessingType
@@ -20,6 +22,23 @@ sealed class ImageSizeType {
 }
 
 object ImageProcessor {
+
+    fun openStream(context: Context, uri: Uri): InputStream? {
+        return try {
+            if (uri.scheme == "file") {
+                val path = uri.path
+                if (path != null && File(path).exists()) {
+                    FileInputStream(File(path))
+                } else {
+                    context.contentResolver.openInputStream(uri)
+                }
+            } else {
+                context.contentResolver.openInputStream(uri)
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     private class Contribution(
         val minIdx: Int,
@@ -204,7 +223,7 @@ object ImageProcessor {
 
         // 1. If both are Original, keep original bytes as is
         if (sizeType is ImageSizeType.Original && processingType is ImageProcessingType.Original) {
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            val bytes = openStream(context, uri)?.use { it.readBytes() }
                 ?: throw IllegalArgumentException("Cannot read image URI")
             // Resolve mimetype or fallback to jpeg
             val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
@@ -216,12 +235,12 @@ object ImageProcessor {
             val options = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
-            contentResolver.openInputStream(uri)?.use {
+            openStream(context, uri)?.use {
                 BitmapFactory.decodeStream(it, null, options)
             }
             val srcMax = kotlin.math.max(options.outWidth, options.outHeight)
             if (srcMax <= sizeType.maxDim) {
-                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val bytes = openStream(context, uri)?.use { it.readBytes() }
                     ?: throw IllegalArgumentException("Cannot read image URI")
                 val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
                 return ProcessedResult(bytes, mimeType)
@@ -229,7 +248,7 @@ object ImageProcessor {
         }
 
         // Decode the original bitmap
-        val inputStream = contentResolver.openInputStream(uri)
+        val inputStream = openStream(context, uri)
             ?: throw IllegalArgumentException("Cannot open image input stream")
         val originalBitmap = BitmapFactory.decodeStream(inputStream)
             ?: throw IllegalArgumentException("Failed to decode bitmap")
@@ -276,8 +295,7 @@ object ImageProcessor {
      * and returns its bytes.
      */
     fun createThumbnail(context: Context, uri: Uri): ByteArray {
-        val contentResolver = context.contentResolver
-        val inputStream = contentResolver.openInputStream(uri) ?: return ByteArray(0)
+        val inputStream = openStream(context, uri) ?: return ByteArray(0)
 
         // Use inSampleSize to decode efficiently
         val options = BitmapFactory.Options().apply {
@@ -300,7 +318,7 @@ object ImageProcessor {
         val decodeOptions = BitmapFactory.Options().apply {
             this.inSampleSize = inSampleSize
         }
-        val stream = contentResolver.openInputStream(uri) ?: return ByteArray(0)
+        val stream = openStream(context, uri) ?: return ByteArray(0)
         val bitmap = BitmapFactory.decodeStream(stream, null, decodeOptions) ?: return ByteArray(0)
         stream.close()
 

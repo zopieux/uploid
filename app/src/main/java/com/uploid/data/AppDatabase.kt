@@ -31,22 +31,24 @@ abstract class AppDatabase : RoomDatabase() {
                         // Prepopulate default providers on a background scope
                         CoroutineScope(Dispatchers.IO).launch {
                             val database = getDatabase(context)
-                            database.uploadProviderDao().insert(
-                                UploadProvider(
-                                    name = "x0.at",
-                                    targetUrl = "https://x0.at/",
-                                    fileParam = "file",
-                                    isDefault = true
+                            if (database.uploadProviderDao().getAllProvidersSync().isEmpty()) {
+                                database.uploadProviderDao().insert(
+                                    UploadProvider(
+                                        name = "x0.at",
+                                        targetUrl = "https://x0.at/",
+                                        fileParam = "file",
+                                        isDefault = true
+                                    )
                                 )
-                            )
-                            database.uploadProviderDao().insert(
-                                UploadProvider(
-                                    name = "0x0.st",
-                                    targetUrl = "https://0x0.st/",
-                                    fileParam = "file",
-                                    isDefault = false
+                                database.uploadProviderDao().insert(
+                                    UploadProvider(
+                                        name = "0x0.st",
+                                        targetUrl = "https://0x0.st/",
+                                        fileParam = "file",
+                                        isDefault = false
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 })
