@@ -1,6 +1,6 @@
 # uploid
 
-uploid minimal, lightweight Android app built using Kotlin, Jetpack Compose, Room and OkHttp. It allows uploading images (or any file) to generic image hosts via HTTP POST, supporting Basic HTTP Authentication, resizing/compressing, and viewing upload history.
+uploid is a lightweight Android app built using Kotlin, Jetpack Compose, Room and OkHttp. It allows uploading images (or any file) to generic hosts via HTTP POST, supporting Basic HTTP Authentication, resizing/compressing of images, and viewing upload history.
 
 ## Screenshots
 
